@@ -4666,8 +4666,9 @@ static void lanOffer(bool host) {
   // exactly what the player just chose in the picker, and that does not depend
   // on whether the radio comes up -- doing it the other way round meant a
   // failed radio skipped the squad entirely and left nothing to inspect.
+  // begin() keeps our name for the hello; peerName stays empty until the
+  // peer's own hello fills it.
   lan.begin(host, pet.trainerName);
-  snprintf(lan.peerName, sizeof(lan.peerName), "%s", pet.trainerName);
   buildSquad(0, TRAINER_TEAM_MAX, squadMask);
   for (uint8_t i = 0; i < btlSquadN; i++) {
     LinkMon m;
