@@ -87,6 +87,9 @@ void Pet::newEgg() {
   ageMinutes = 0;
   careMistakes = 0;
   mistakeCooldown = 0;
+  // An offer belongs to the creature that unlocked it. Left set, an egg would
+  // open the learn screen -- and now that the queue is saved, keep doing so.
+  learnQCount = 0;
   sleeping = false;
   frozen = false;
   save();
@@ -225,7 +228,10 @@ void Pet::tick() {
   // cuidado (con enfriamiento para no contar el mismo descuido cada minuto)
   if (mistakeCooldown > 0) mistakeCooldown--;
   if (lowestStat() <= 10 && mistakeCooldown == 0) {
-    careMistakes++;
+    // Saturates rather than wraps: a revived companion never leaves, and 256
+    // mistakes (~10.7 days of neglect at one an hour) used to roll back to 0,
+    // which re-qualifies for MED_FIT and erases every evolution delay.
+    if (careMistakes < 255) careMistakes++;
     mistakeCooldown = 60;
     if (bond > 1) bond--;  // el descuido enfria el vinculo, pero sin arrasarlo:
                            // a -3 cada 30 min se perdia mucho mas de lo que se
@@ -378,11 +384,31 @@ uint8_t Pet::eggRarity() const {
   return (eggTarget >= 1 && eggTarget <= DEX_COUNT) ? DEX_TBL[eggTarget].rarity : R_COMUN;
 }
 
+// Picks uniformly among the species in lo..hi that satisfy `ok`, or returns 0
+// if none do.
+//
+// Two walks instead of a candidate array, so there is no capacity to outgrow.
+// The array this replaces was CAND_MAX = 260 entries, which was EXACTLY the
+// number of commons in the mixed pool at the time -- one more generation and
+// `n < CAND_MAX` would have silently cut the highest dex numbers out of every
+// egg, with nothing failing. (It began life as 80, sized for Kanto.) Sizing it
+// from DEX_COUNT instead would cost 1.6 KB of loop-task stack per call for a
+// loop over at most DEX_COUNT species. The pick is identical either way: the
+// same candidates in the same order, chosen by the same one random(n).
+template <typename Ok>
+static int16_t pickWhere(int16_t lo, int16_t hi, Ok ok) {
+  long n = 0;
+  for (int16_t d = lo; d <= hi; d++)
+    if (ok(d)) n++;
+  if (!n) return 0;
+  long k = random(n);
+  for (int16_t d = lo; d <= hi; d++)
+    if (ok(d) && k-- == 0) return d;
+  return 0;                         // unreachable: ok() is a pure function
+}
+
 // elige la especie del huevo: tirada de rareza (mejorada por una despedida
 // completa, castigada por una escapada) y sesgo hacia lineas incompletas
-// Room for the candidate list. A whole rarity tier of a 386-species dex is far
-// more than the 80 the Kanto-only build needed.
-#define CAND_MAX 260
 
 uint16_t gRegionArt = 0xFFFF;   // everything, until the SD narrows it
 
@@ -446,21 +472,18 @@ int16_t Pet::pickEggSpecies() {
   // si la pokedex del tier esta completa, vale cualquiera del tier
   for (int pass = 0; pass < 2; pass++) {
     for (int t = tier; t >= R_COMUN; t--) {
-      int16_t cand[CAND_MAX];
-      int n = 0;
-      for (int16_t d = rg.lo; d <= rg.hi && n < CAND_MAX; d++) {
-        if (DEX_TBL[d].rarity != t) continue;
-        if (pass == 0 && !lineHasUnregistered(d)) continue;
+      int16_t got = pickWhere(rg.lo, rg.hi, [&](int16_t d) {
+        if (DEX_TBL[d].rarity != t) return false;
+        if (pass == 0 && !lineHasUnregistered(d)) return false;
         // ALL spans every region, so filter per species: a missing Sinnoh pack
         // must not put a Sinnoh creature in a mixed egg.
-        if (!regionAvailable(regionOfDex(d))) continue;
+        if (!regionAvailable(regionOfDex(d))) return false;
         // And a species with no art ANYWHERE never hatches, pack or no pack --
         // it would be a creature that can only ever draw as a number. It keeps
         // its dex slot; it is simply not something an egg can contain.
-        if (!speciesHasArt(d)) continue;
-        cand[n++] = d;
-      }
-      if (n > 0) return cand[random(n)];
+        return speciesHasArt(d);
+      });
+      if (got) return got;
     }
   }
   return rg.starters[random(rg.starterCount)];  // inalcanzable, por si acaso
@@ -472,12 +495,11 @@ int16_t Pet::pickEggSpecies() {
 int16_t Pet::rollInRegion(uint8_t r, uint8_t tier) {
   const RegionInfo &rg = REGIONS[eggRegionFallback(r % REGION_COUNT)];
   for (int t = tier; t >= R_COMUN; t--) {
-    int16_t cand[CAND_MAX];
-    int n = 0;
-    for (int16_t d = rg.lo; d <= rg.hi && n < CAND_MAX; d++)
-      if (DEX_TBL[d].rarity == t && regionAvailable(regionOfDex(d)) &&
-          speciesHasArt(d)) cand[n++] = d;
-    if (n) return cand[random(n)];
+    int16_t got = pickWhere(rg.lo, rg.hi, [&](int16_t d) {
+      return DEX_TBL[d].rarity == t && regionAvailable(regionOfDex(d)) &&
+             speciesHasArt(d);
+    });
+    if (got) return got;
   }
   return rg.starters[0];      // a region with nothing in it cannot happen
 }
@@ -1274,6 +1296,13 @@ void Pet::save() {
   prefs.putUChar("tspe", trSpe);
   prefs.putBytes("mvs", moves, sizeof(moves));
   prefs.putUChar("mvlv", lastLearnLevel);
+  {
+    // Only the live entries: hatch() and reviveFrom() reset learnQCount without
+    // zeroing the array, so writing it raw would resurrect stale offers.
+    uint8_t q[sizeof(learnQueue)] = { 0 };
+    memcpy(q, learnQueue, learnQCount <= sizeof(q) ? learnQCount : sizeof(q));
+    prefs.putBytes("mvq", q, sizeof(q));
+  }
   prefs.putUChar("avtr", avatar);
   prefs.putUChar("reg", region);
   prefs.putBytes("badgX", badgesX, sizeof(badgesX));
@@ -1403,13 +1432,63 @@ void Pet::load() {
   if (avatar >= AVATAR_COUNT) avatar = 0;   // a save from when there were four
   badges = prefs.getUShort("badg", 0);
   badgesHard = prefs.getUShort("badh", 0);
+
+  // Nothing above may be trusted to index a table yet. A save written by a
+  // build with a BIGGER dex (loadBlob() deliberately supports flashing an older
+  // build over a newer save) or an IMPORT block that passes its CRC can carry a
+  // dex this build does not have, and DEX_TBL[speciesId] is read unguarded all
+  // over -- stats, medals, evolution, every render. So every dex read from NVS
+  // is pinned to the table here, before relearnFromLevel()/checkLearnGates()
+  // below are the first to use it.
+  for (int i = 0; i < REGION_COUNT; i++)
+    if (eggByRegion[i] < 0 || eggByRegion[i] > DEX_COUNT) eggByRegion[i] = 0;
+  // setRegion() promotes eggByRegion[r] straight into eggTarget, hatch() makes
+  // eggTarget the creature. A common of the current region is the conservative
+  // re-roll: a corrupted value must never be a way to a rarer egg.
+  if (eggTarget < 1 || eggTarget > DEX_COUNT)
+    eggTarget = rollInRegion(region, R_COMUN);
+  if (speciesId < -1) speciesId = -1;          // every negative already means egg
+  if (speciesId == 0 || speciesId > DEX_COUNT) {
+    // A live creature this build cannot represent. There is no species to
+    // clamp it TO -- any other dex would be a creature the player never raised
+    // -- so it becomes a fresh egg, through newEgg() so that "a fresh egg" has
+    // one definition. Everything player-wide (Pokedex, badges, party, streak)
+    // was loaded above and newEgg() leaves it alone. newEgg() saves at once:
+    // the bytes it replaces were never playable on this build, and a player
+    // going back to the newer one has EXPORT for exactly that.
+    Serial.printf("load: dex %d is not in this build (1..%d), new egg\n",
+                  (int)speciesId, DEX_COUNT);
+    newEgg();
+    return;
+  }
+
   if (!isEgg() && moveCount() == 0 && lastLearnLevel == 0) {
     // save from before moves existed: hand it the set it should already have
     // rather than a queue of every gate it ever passed
     relearnFromLevel();
     lastLearnLevel = level();
   }
-  learnQCount = 0;      // rebuilt from lastLearnLevel by the next tick
+  // The pending level-up offers. lastLearnLevel ("mvlv") is saved, so the
+  // gates below it are never walked again after a reboot: an offer that was
+  // only queued in RAM used to be lost for good. The queue is persisted under
+  // its own key rather than rebuilt from the learnset, because a rebuild cannot
+  // tell an offer still waiting from one the player already DECLINED -- both
+  // are simply "a gated move it does not know" -- so it would re-offer every
+  // declined move on every boot. A new key is additive: a save without it
+  // loads an empty queue, which is exactly what every old save loaded before.
+  learnQCount = 0;
+  if (!isEgg()) {
+    uint8_t q[sizeof(learnQueue)] = { 0 };
+    loadBlob(prefs, "mvq", q, sizeof(q));
+    for (uint8_t i = 0; i < sizeof(q) && q[i]; i++) {
+      uint8_t mv = q[i];
+      if (mv >= MOVE_COUNT || knowsMove(mv)) continue;   // junk, or since learned
+      bool dup = false;
+      for (uint8_t j = 0; j < learnQCount; j++)
+        if (learnQueue[j] == mv) dup = true;
+      if (!dup) learnQueue[learnQCount++] = mv;
+    }
+  }
   checkLearnGates();
   // siembra: la mascota actual cuenta como criada (guardados antiguos)
   if (speciesId >= 1) registerSpecies(speciesId);
