@@ -39,7 +39,7 @@ static void loadBlob(Preferences &p, const char *key, void *dst, size_t n) {
 
 void Pet::begin() {
   prefs.begin("tamapoke", false);
-  opened = true;
+  prefs.opened = true;
   // Zeroed BEFORE the branch below, not inside load(): getBytes() leaves its
   // destination untouched when the key is missing, and the fresh-install path
   // returns without ever calling load(). Without this a begin() after a factory
@@ -117,7 +117,10 @@ void Pet::syncClock(uint32_t nowEpoch) {
   if (mins > 14UL * 24 * 60) mins = 14UL * 24 * 60;  // tope: 2 semanas
 
   for (uint32_t i = 0; i < mins; i++) {
-    ageMinutes++;
+    // tick() has always skipped this for a revived companion; the offline
+    // catch-up did not, so a frozen level 20 came back level 28 after a night
+    // switched off -- and level 100 after two weeks.
+    if (!frozen) ageMinutes++;
     if (isEgg()) {
       if (ageMinutes >= 3) hatch();  // eclosiona en tu ausencia
       continue;
@@ -195,7 +198,12 @@ void Pet::tick() {
     return;
   }
 
-  if (ageMinutes % MINUTES_PER_LEVEL == 0) sfxPlay(SFX_LEVEL);  // subio de nivel (despierto)
+  // A level-up chime only when a level was actually gained. A frozen companion's
+  // age is a whole number of levels and never moves, so the bare modulo chimed
+  // EVERY minute it was awake; past level 100 it chimed every hour for nothing.
+  if (!frozen && ageMinutes % MINUTES_PER_LEVEL == 0 &&
+      ageMinutes <= (uint32_t)(MAX_LEVEL - 1) * MINUTES_PER_LEVEL)
+    sfxPlay(SFX_LEVEL);
 
   fullness = clamp100(fullness - 2);
   energy = clamp100(energy - 1);
@@ -1248,7 +1256,7 @@ void Pet::save() {
   // fixture, anything built to be read and thrown away. It shares the single
   // NVS namespace with the real creature, so letting it write means it
   // OVERWRITES the player's pet. See the note on `opened` in pet.h.
-  if (!opened) return;
+  if (!prefs.opened) return;
   ticksSinceSave = 0;
   pendingSave = false;
   prefs.putUChar("full", fullness);
@@ -1339,7 +1347,10 @@ void Pet::load() {
   starterPick = prefs.getBool("stpk", false);
   evoPen = prefs.getUChar("evop", 0);
   sleepAuto = prefs.getUChar("slpa", SLEEP_NONE);
-  retirePending = prefs.getBool("rtpn", false);
+  // Never carried across a boot: the ceremony that spends it is not saved, so a
+  // reset inside those 10 s used to bring the creature back with the flag still
+  // set -- and its LATER, earned farewell then refused to bank it.
+  retirePending = false;
   loadBlob(prefs, "dexsh", dexShinyReg, sizeof(dexShinyReg));
   ageMinutes = prefs.getUInt("age", 0);
   if (prefs.isKey("dexn")) {

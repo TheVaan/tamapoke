@@ -418,7 +418,30 @@ public:
   void saveNow();
 
 private:
-  Preferences prefs;
+  // The NVS handle belongs to the Pet that OPENED it, never to a copy of it.
+  //
+  // Arduino's Preferences is a bare { _handle, _started } pair with the
+  // implicit copy constructor and a destructor that nvs_close()s. So
+  //
+  //     Pet tmp = pet;      // buildSquad(): the live pet, level-capped
+  //
+  // gave `tmp` the live pet's handle, and when `tmp` went out of scope it
+  // CLOSED it. Every save after that -- the badge just won, the training reward,
+  // everything until the next reboot -- failed silently against a dead handle.
+  // On a board: win a gym, reset or run the battery flat, and come back to the
+  // state from before the fight. The emulator's Preferences ignored begin()/
+  // end() and could not see it; it models handles now, and btlsave_test pins it.
+  //
+  // A copy is a scratch Pet: it gets a fresh, UNOPENED Preferences and
+  // `opened = false`, so it can neither close the original's handle nor write
+  // through the guard below. Assignment leaves the target's own handle alone.
+  struct Store : Preferences {
+    bool opened = false;
+    Store() {}
+    Store(const Store &) : Preferences() {}
+    Store &operator=(const Store &) { return *this; }
+  };
+  Store prefs;
   // A Pet that was never begin()'d MUST NOT WRITE. Nothing enforced that, and
   // the battle code builds its opponent as a throwaway Pet:
   //
@@ -432,8 +455,8 @@ private:
   // That is the "flashed and my mon got replaced with an older one" report.
   //
   // The rule belongs here rather than at the call sites: every future throwaway
-  // Pet is covered without anyone having to remember.
-  bool opened = false;
+  // Pet is covered without anyone having to remember. The flag lives on
+  // `prefs` (as prefs.opened) so that a COPY of an opened Pet starts closed.
   uint32_t lastTick = 0;
   uint32_t eatUntil = 0;
   uint32_t heartUntil = 0;

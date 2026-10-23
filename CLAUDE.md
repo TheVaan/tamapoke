@@ -83,6 +83,7 @@ second caller has its own copy of it, and nobody notices until a player does.
 | evolution threshold | `canEvolveNow()` | `renderCardProgress()` | the card would promise an evolution that never came |
 | a region needs its pack | `sdBegin()`, at mount | files arriving later over `PUT` | the pack you just downloaded stayed greyed out until a reboot |
 | the 3 s hold is for the pet | a list of screens to EXCLUDE | every screen not on that list | holding a PARTY SLOT offered to release the LIVE pet |
+| which ladder a fight is on | the first foe, via `TRAINERS` (`gymRegion`) | every later foe, the badge and the win screen, via `BTL_TRAINERS` (`btlRegion`, never assigned) | a Johto leader sent out Brock's ONIX and paid a KANTO badge; Johto never got past leader 1 |
 
 **A guard written as a list of EXCLUSIONS is this trap pre-loaded.** The hold
 was gated by `!galleryOpen && !cardOpen && !kbOpen && !clockOpen`, so every
@@ -218,6 +219,15 @@ that have each cost a real bug:
   sketch that `arduino-cli` rejects for using a function before it is declared.
   A green emulator build is not proof the firmware builds. `tests/run.sh` now
   runs the real `arduino-cli compile` first and stops if it fails.
+- **Library semantics a stub flattens.** The `Preferences` stub ignored
+  `begin()`/`end()`, so `Pet tmp = pet;` -- which copies the NVS handle and
+  CLOSES it in the copy's destructor -- was harmless here and killed every save
+  after a gym battle on the board. The stub models handles now (`btlsave_test`).
+  Same family: the touch stub's `getPoint()` took no time, so `lastInteract`
+  was never ahead of `loop()`'s `now`; on the board it always is, and an
+  unsigned `now - lastInteract` dimmed the panel on every tap (`dim_test`, via
+  `g_touchReadUs`). **A class holding a `Preferences` must not be copied
+  naively** -- `Pet` gives its copies a fresh, unopened store.
 - **A missing `gfx->flush()`.** `--shot` reads `gfx->buffer()` directly and
   never consults `frameReady`, so a frozen panel photographs perfectly. That is
   what `flush_test` is for.

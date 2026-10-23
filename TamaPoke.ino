@@ -36,7 +36,7 @@
 
 // Version del firmware. Subir este numero en cada release (y manifest.json para
 // el instalador web). Se muestra en la pantalla de ajustes y por serie al arrancar.
-#define FW_VERSION "3.11"
+#define FW_VERSION "3.12"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
   LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -834,7 +834,11 @@ void updateBrightness(uint32_t now) {
   if (pet.evolving() || pet.ceremony || pet.eating() || pet.showHeart()) {
     lastInteract = now;
   }
-  uint32_t idle = now - lastInteract;
+  // `now` was taken at the top of loop(), but handleTouch() stamps lastInteract
+  // with a FRESH millis() after an I2C read -- so lastInteract is routinely a few
+  // ms ahead of `now`. Unsigned, that "negative" idle was ~4.29e9: dimStage 2,
+  // brightness 8, on every press and release. The brief black flashes.
+  uint32_t idle = (int32_t)(now - lastInteract) > 0 ? now - lastInteract : 0;
   dimStage = (idle > 300000) ? 2 : (idle > 90000) ? 1 : 0;
   uint8_t target = pet.sleeping ? 25 : (usbPresent() ? 180 : 145);
   if (dimStage == 1) target = pet.sleeping ? 10 : 60;
@@ -3370,7 +3374,13 @@ void startLinkBattle() {
 
 void startTrainerBattle(uint8_t idx, bool hard) {
   if (idx >= TRAINER_COUNT || pet.isEgg() || pet.ceremony != CER_NONE) return;
-  const Trainer &tr = TRAINERS[idx];
+  // The fight's region is pinned HERE, and everything below reads BTL_TRAINERS.
+  // btlRegion was declared for exactly this and never assigned, so it stayed 0:
+  // a Johto fight opened with Falkner's first creature (read via TRAINERS), then
+  // sent out Brock's ONIX as the second, and a win awarded a KANTO badge -- the
+  // Johto ladder could never get past its first leader.
+  btlRegion = gymRegion % GYM_REGIONS;
+  const Trainer &tr = BTL_TRAINERS[idx];
   uint8_t top = 0;
   for (int k = 0; k < tr.count; k++)
     if (tr.team[k].level > top) top = tr.team[k].level;
@@ -3381,9 +3391,9 @@ void startTrainerBattle(uint8_t idx, bool hard) {
   if (!btlSquadN) return;
   btlTrainer = (int8_t)idx;
   btlHard = hard;
+  btlLink = false;
   btlFoeAt = 0;
-  const Trainer &t = TRAINERS[idx];
-  foeFromSpecies(btlFoe, t.team[0].dex, t.team[0].level, hard ? HARD_IV : EASY_IV);
+  foeFromSpecies(btlFoe, tr.team[0].dex, tr.team[0].level, hard ? HARD_IV : EASY_IV);
   btlMsgCount = 0;
   btlOver = false;
   btlWon = false;
@@ -3407,6 +3417,13 @@ void startBattle(int16_t dex, uint8_t lvl) {
   if (dex < 1 || dex > DEX_COUNT) return;
   buildSquad(0, TRAINER_TEAM_MAX, 0xFFFF);
   if (!btlSquadN) return;
+  // Not a trainer and not a link fight. Without this the previous gym fight's
+  // btlTrainer survived, and winning a console BATTLE awarded that leader's
+  // badge -- whether or not it had actually been beaten.
+  btlTrainer = -1;
+  btlHard = false;
+  btlLink = false;
+  btlFoeAt = 0;
   // The opponent is built through Pet so it gets the same stat formula and the
   // same learnset-driven moveset the player's creature does -- no special-cased
   // "enemy" maths that could quietly diverge.
@@ -3464,8 +3481,12 @@ static void btlApplyResult() {
   }
   btlYou.hp = r.guestHp > btlYou.maxHp ? btlYou.maxHp : r.guestHp;
   btlFoe.hp = r.hostHp > btlFoe.maxHp ? btlFoe.maxHp : r.hostHp;
-  btlYou.ailment = r.guestAil;
-  btlFoe.ailment = r.hostAil;
+  // Off the wire, so nothing here may index a table unchecked: btlSide() looks
+  // the ailment up in a 7-entry table and the narration below indexes MOVE_TBL.
+  btlYou.ailment = r.guestAil <= AIL_CONFUSE ? r.guestAil : AIL_NONE;
+  btlFoe.ailment = r.hostAil <= AIL_CONFUSE ? r.hostAil : AIL_NONE;
+  r.hostMove = linkSafeMove(r.hostMove);
+  r.guestMove = linkSafeMove(r.guestMove);
 
   btlMsgCount = 0;
   if (r.hostMove) btlSay(T(S_BTL_USED), btlFoe.name, MOVE_TBL[r.hostMove].name);
