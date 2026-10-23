@@ -315,6 +315,9 @@ static void drawBtlBack();
 static void btlLinkPoll();   // defined with the battle code, called from render()
 static void btlSwitchTo(uint8_t i);
 static void btlResolve(uint8_t yourMove);
+static void btlSettleFaints();       // who replaces a fainted creature, or the end
+static void closeScreensForBattle(); // the console's BATTLE clears what hides it
+int btlSwitchCellAt(int16_t x, int16_t y);   // exposed for hit_test
 // The peer's whole team, kept live. A trainer's replacements are built fresh
 // from TRAINERS[] because they only ever arrive once; a linked opponent can
 // switch OUT and back IN, so its creatures have to remember how battered they
@@ -525,11 +528,29 @@ uint8_t btlMsgCount = 0;   // queued lines; a tap shows the next
 // made the bottom row hard to press was a gap, not a wrong rectangle.
 int btlCellIndexAt(int16_t x, int16_t y);
 
-// Used by BOTH the move grid and the switch grid. They had a copy each of the
-// same rectangle test, which is exactly how two halves of one control drift.
+// Used by the move grid and the FIGHT/POKEMON/RUN menu. They had a copy each of
+// the same rectangle test, which is exactly how two halves of one control drift.
 static inline bool btlCellHit(int i, int16_t x, int16_t y) {
   return x >= BTL_HIT_X0(i) && x <= BTL_HIT_X1(i) &&
          y >= BTL_HIT_Y0(i) && y <= BTL_HIT_Y1(i);
+}
+
+// The switch grid is THREE columns over the move grid's two rows, so a full
+// squad of six fits on one screen. The 2x2 grid only ever listed slots 0-3, and
+// easy mode and LAN both bring six -- members 5 and 6 could not be sent in at
+// all. Same overall width and the same two rows, so it sits inside the round
+// panel exactly where the move grid does (cells 104x44, still >= UI_TAP_MIN).
+// Rows reuse the move grid's hit rows, so the bottom row keeps its extra reach
+// downward and stops short of BACK; columns tile the same way the 2x2 does.
+#define BTL_SW_COLS 3
+#define BTL_SW_GAP 8
+#define BTL_SW_W ((2 * BTL_CELL_W + 8 - (BTL_SW_COLS - 1) * BTL_SW_GAP) / BTL_SW_COLS)
+#define BTL_SW_X(i) (BTL_GRID_X + ((i) % BTL_SW_COLS) * (BTL_SW_W + BTL_SW_GAP))
+#define BTL_SW_ROW(i) (((i) / BTL_SW_COLS) * 2)   // the move-grid cell on that row
+#define BTL_SW_Y(i) BTL_CELL_Y(BTL_SW_ROW(i))
+static inline bool btlSwitchHit(int i, int16_t x, int16_t y) {
+  return x >= BTL_SW_X(i) - BTL_HIT_PAD && x <= BTL_SW_X(i) + BTL_SW_W + BTL_HIT_PAD - 1 &&
+         y >= BTL_HIT_Y0(BTL_SW_ROW(i)) && y <= BTL_HIT_Y1(BTL_SW_ROW(i));
 }
 #define TRAIN_X 73
 #define TRAIN_Y 96
@@ -971,8 +992,13 @@ void handleSerial() {
     // BATTLE <dex> [level] -- the only way in until the trainer roster exists
     int dex = 0, lvl = 0;
     int n = sscanf(line.c_str() + 6, "%d %d", &dex, &lvl);
-    if (n >= 1 && dex >= 1 && dex <= DEX_COUNT) {
+    if (partyPick || (battleOpen && btlLink)) {
+      // A creature waiting for a party slot would be dropped by closing the
+      // party, and a LAN fight would be abandoned without telling the peer.
+      Serial.println("finish the party choice or the LAN battle first");
+    } else if (n >= 1 && dex >= 1 && dex <= DEX_COUNT) {
       startBattle(dex, lvl > 0 ? (uint8_t)lvl : pet.level());
+      if (battleOpen) closeScreensForBattle();
       Serial.printf("battle vs %s Lv.%u\n", DEX_TBL[dex].name, btlFoe.level);
     } else {
       Serial.println("uso: BATTLE <dex> [nivel]");
@@ -3621,50 +3647,73 @@ static void btlResolve(uint8_t yourMove) {
   // Someone went down. The replacement is NOT swapped in here -- that made the
   // change instant and read as a jump cut. Flag it, let the sprite drop out of
   // frame, and swap when the player dismisses the message.
-  if (btlFoe.fainted() && btlLink && btlFoeAt + 1 < btlFoeSquadN) {
-    btlFaintUntil[1] = millis() + BTL_FAINT_MS;
-    btlSwapWho = 1;
-    return;
-  }
-  if (btlFoe.fainted() && btlTrainer >= 0 && btlFoeAt + 1 < BTL_TRAINERS[btlTrainer].count) {
-    btlFaintUntil[1] = millis() + BTL_FAINT_MS;
-    btlSwapWho = 1;
-    return;
-  }
-  if (btlYou.fainted() && btlSquadAt + 1 < btlSquadN) {
-    btlFaintUntil[0] = millis() + BTL_FAINT_MS;
-    btlSwapWho = 0;
-    return;
-  }
-  if (btlFoe.fainted() || btlYou.fainted()) {
-    btlOver = true;
-    btlWon = btlFoe.fainted();
-    btlNewBadge = false;
-    btlTrainGain = 0;
-    if (btlWon && btlTrainer >= 0 && !pet.hasBadge(btlRegion, btlTrainer, btlHard)) {
-      pet.winBadge(btlRegion, btlTrainer, btlHard);
-      btlNewBadge = true;
+  btlSettleFaints();
+}
+
+// Who comes on next for each side, or -1. ONE answer for the flag that
+// btlSettleFaints() sets, the swap btlDoSwap() makes on it, and the end of the
+// fight. Each used to say "the next index" on its own: switch from slot 0 to
+// slot 2, lose slot 2, and the fight was LOST with 0 and 1 untouched; or switch
+// back to a first creature, lose it, and the "next" slot sent out was already
+// at 0 HP.
+static int8_t btlYourNext() {
+  return battleNextAlive(btlSquad, btlSquadN, btlSquadAt);
+}
+static int8_t btlFoeNext() {
+  // Another device's team switches out and back like ours, so it follows the
+  // same rule. Only scanning forward left a fainted foe on the field with
+  // nobody flagged to replace it, and the fight never ended.
+  if (btlLink) return battleNextAlive(btlFoeSquad, btlFoeSquadN, btlFoeAt);
+  // A trainer never switches: the roster is a fixed queue, sent out in order.
+  if (btlTrainer >= 0 && btlFoeAt + 1 < BTL_TRAINERS[btlTrainer].count)
+    return (int8_t)(btlFoeAt + 1);
+  return -1;               // a one-off console fight has nobody behind it
+}
+
+// Runs after a turn, and again after a replacement comes on, because recoil can
+// put both creatures down in the same turn. A side with nobody left decides the
+// fight before anyone is sent out; otherwise the foe replaces first and you on
+// the following beat.
+static void btlSettleFaints() {
+  bool foeOut = btlFoe.fainted() && btlFoeNext() < 0;
+  bool youOut = btlYou.fainted() && btlYourNext() < 0;
+  if (!foeOut && !youOut) {
+    if (btlFoe.fainted()) {
+      btlFaintUntil[1] = millis() + BTL_FAINT_MS;
+      btlSwapWho = 1;
+    } else if (btlYou.fainted()) {
+      btlFaintUntil[0] = millis() + BTL_FAINT_MS;
+      btlSwapWho = 0;
     }
-    // A badge and nothing else made the ladder a one-way checklist. A win now
-    // trains the creature that fought for it -- so a leader you can already
-    // beat is worth returning to. It goes to the LIVE pet only: banked members
-    // are frozen at the level and training they were banked with, and battling
-    // already costs the live pet energy, which is what rate-limits the grind
-    // without needing a cooldown.
-    if (btlWon && btlTrainer >= 0 && btlPetIn) {
-      // Later leaders are worth more, and hard mode is worth roughly double.
-      uint8_t amt = (btlHard ? 6 + random(5) : 3 + random(3)) + btlTrainer / 3;
-      btlTrainGain = pet.rewardTraining(amt, btlTrainWhich);
-    }
-    audioMusic(btlWon ? MUS_VICTORY : MUS_NONE);
-    if (btlWon) sfxPlay(SFX_VICTORY);
-    // Tell the peer before anything else: if we stop here without sending, the
-    // other device sits on a battle that will never take another turn.
-    if (btlLink && btlLinkHost) lan.sendEnd(btlWon);
-    if (btlLink) { btlSay("%s", btlWon ? T(S_BTL_WIN) : T(S_BTL_LOSE)); return; }
-    if (btlWon && btlTrainer >= 0) { btlWinUntil = millis() + 60000; return; }
-    btlSay("%s", T(S_BTL_LOSE));
+    return;
   }
+  btlOver = true;
+  btlWon = foeOut;     // both out at once stays the win it always was
+  btlNewBadge = false;
+  btlTrainGain = 0;
+  if (btlWon && btlTrainer >= 0 && !pet.hasBadge(btlRegion, btlTrainer, btlHard)) {
+    pet.winBadge(btlRegion, btlTrainer, btlHard);
+    btlNewBadge = true;
+  }
+  // A badge and nothing else made the ladder a one-way checklist. A win now
+  // trains the creature that fought for it -- so a leader you can already
+  // beat is worth returning to. It goes to the LIVE pet only: banked members
+  // are frozen at the level and training they were banked with, and battling
+  // already costs the live pet energy, which is what rate-limits the grind
+  // without needing a cooldown.
+  if (btlWon && btlTrainer >= 0 && btlPetIn) {
+    // Later leaders are worth more, and hard mode is worth roughly double.
+    uint8_t amt = (btlHard ? 6 + random(5) : 3 + random(3)) + btlTrainer / 3;
+    btlTrainGain = pet.rewardTraining(amt, btlTrainWhich);
+  }
+  audioMusic(btlWon ? MUS_VICTORY : MUS_NONE);
+  if (btlWon) sfxPlay(SFX_VICTORY);
+  // Tell the peer before anything else: if we stop here without sending, the
+  // other device sits on a battle that will never take another turn.
+  if (btlLink && btlLinkHost) lan.sendEnd(btlWon);
+  if (btlLink) { btlSay("%s", btlWon ? T(S_BTL_WIN) : T(S_BTL_LOSE)); return; }
+  if (btlWon && btlTrainer >= 0) { btlWinUntil = millis() + 60000; return; }
+  btlSay("%s", T(S_BTL_LOSE));
 }
 
 static void btlHpBar(int x, int y, int w, const Combatant &c, uint16_t shown) {
@@ -3915,12 +3964,12 @@ void renderBattle() {
   } else if (btlMenu == 2) {
     drawBtlBack();
     // who to bring on instead; the current one and anything fainted is inert
-    for (uint8_t i = 0; i < btlSquadN && i < 4; i++) {
-      int x = BTL_CELL_X(i), y = BTL_CELL_Y(i);
+    for (uint8_t i = 0; i < btlSquadN && i < TRAINER_TEAM_MAX; i++) {
+      int x = BTL_SW_X(i), y = BTL_SW_Y(i);
       const Combatant &m = (i == btlSquadAt) ? btlYou : btlSquad[i];
       bool usable = (i != btlSquadAt) && !m.fainted();
-      gfx->fillRoundRect(x, y, BTL_CELL_W, BTL_CELL_H, 10, usable ? UI_BG_DAY : UI_TRACK);
-      gfx->drawRoundRect(x, y, BTL_CELL_W, BTL_CELL_H, 10, usable ? UI_INK : 0x8410);
+      gfx->fillRoundRect(x, y, BTL_SW_W, BTL_CELL_H, 10, usable ? UI_BG_DAY : UI_TRACK);
+      gfx->drawRoundRect(x, y, BTL_SW_W, BTL_CELL_H, 10, usable ? UI_INK : 0x8410);
       gfx->setTextColor(usable ? UI_INK : 0x8410);
       gfx->setTextSize(1);
       gfx->setCursor(x + 10, y + 10);
@@ -3960,32 +4009,38 @@ void renderBattle() {
 // Brings on the flagged replacement and starts its entrance.
 static void btlDoSwap() {
   uint32_t now = millis();
-  if (btlSwapWho == 1 && btlLink) {
-    btlFoeSquad[btlFoeAt] = btlFoe;
-    // the next one still standing, not simply the next index
-    uint8_t nxt = btlFoeAt;
-    while (++nxt < btlFoeSquadN && btlFoeSquad[nxt].fainted()) {}
-    if (nxt >= btlFoeSquadN) { btlSwapWho = -1; return; }
-    btlFoeAt = nxt;
-    btlFoe = btlFoeSquad[btlFoeAt];
-    btlHpShown[1] = btlFoe.hp;
+  int8_t who = btlSwapWho;
+  btlSwapWho = -1;
+  if (who == 1) {
+    if (btlLink) btlFoeSquad[btlFoeAt] = btlFoe;   // remember how battered it was
+    // The same answer btlSettleFaints() flagged on, so this cannot come back
+    // empty -- but if it ever did, end the fight rather than leave a fainted
+    // foe standing with nobody due to replace it (that never ended at all).
+    int8_t nxt = btlFoeNext();
+    if (nxt < 0) { btlSettleFaints(); return; }
+    btlFoeAt = (uint8_t)nxt;
+    if (btlLink) {
+      btlFoe = btlFoeSquad[btlFoeAt];
+      btlHpShown[1] = btlFoe.hp;
+    } else {
+      const Trainer &t = BTL_TRAINERS[btlTrainer];
+      foeFromSpecies(btlFoe, t.team[btlFoeAt].dex, t.team[btlFoeAt].level,
+                     btlHard ? HARD_IV : EASY_IV);
+      btlHpShown[1] = btlFoe.maxHp;
+    }
     btlSyncSprite(1, btlFoe);
     btlLungeUntil[1] = btlHitUntil[1] = btlFaintUntil[1] = 0;
     btlEnterUntil[1] = now + BTL_ENTER_MS;
-    btlSay(T(S_BTL_SENDS), lan.peerName, btlFoe.name);
-  } else if (btlSwapWho == 1) {
-    const Trainer &t = BTL_TRAINERS[btlTrainer];
-    btlFoeAt++;
-    foeFromSpecies(btlFoe, t.team[btlFoeAt].dex, t.team[btlFoeAt].level,
-                   btlHard ? HARD_IV : EASY_IV);
-    btlHpShown[1] = btlFoe.maxHp;
-    btlSyncSprite(1, btlFoe);
-    btlLungeUntil[1] = btlHitUntil[1] = btlFaintUntil[1] = 0;
-    btlEnterUntil[1] = now + BTL_ENTER_MS;
-    btlSay(T(S_BTL_SENDS), t.name, btlFoe.name);
-  } else if (btlSwapWho == 0) {
+    btlSay(T(S_BTL_SENDS), btlLink ? lan.peerName : BTL_TRAINERS[btlTrainer].name,
+           btlFoe.name);
+    // Recoil can drop both in one turn: the foe's replacement is in, so now
+    // yours comes on (or the fight is lost) on the next beat.
+    if (btlYou.fainted()) btlSettleFaints();
+  } else if (who == 0) {
     btlSquad[btlSquadAt] = btlYou;     // remember how battered it was
-    btlSquadAt++;
+    int8_t nxt = btlYourNext();
+    if (nxt < 0) { btlSettleFaints(); return; }
+    btlSquadAt = (uint8_t)nxt;
     btlYou = btlSquad[btlSquadAt];
     btlHpShown[0] = btlYou.hp;
     btlSyncSprite(0, btlYou);
@@ -3993,7 +4048,6 @@ static void btlDoSwap() {
     btlEnterUntil[0] = now + BTL_ENTER_MS;
     btlSay(T(S_BTL_GO), btlYou.name);
   }
-  btlSwapWho = -1;
 }
 
 // Switching spends your turn: the opponent still acts. That is what stops it
@@ -4015,6 +4069,13 @@ static void btlSwitchTo(uint8_t i) {
 int btlCellIndexAt(int16_t x, int16_t y) {
   for (int i = 0; i < 4; i++)
     if (btlCellHit(i, x, y)) return i;
+  return -1;
+}
+
+// The same, for the six-slot switch grid.
+int btlSwitchCellAt(int16_t x, int16_t y) {
+  for (int i = 0; i < TRAINER_TEAM_MAX; i++)
+    if (btlSwitchHit(i, x, y)) return i;
   return -1;
 }
 
@@ -4084,8 +4145,8 @@ void battleTap(int16_t x, int16_t y) {
   }
   if (btlMenu == 2) {
     if (btlBackTap(x, y)) return;
-    for (uint8_t i = 0; i < btlSquadN && i < 4; i++) {
-      if (!btlCellHit(i, x, y)) continue;
+    for (uint8_t i = 0; i < btlSquadN && i < TRAINER_TEAM_MAX; i++) {
+      if (!btlSwitchHit(i, x, y)) continue;
       const Combatant &m = (i == btlSquadAt) ? btlYou : btlSquad[i];
       if (i == btlSquadAt || m.fainted()) { sfxPlay(SFX_DENY); return; }
       sfxPlay(SFX_TAP);
@@ -4659,6 +4720,32 @@ void lanLeave() {
   if (lan.live()) lan.sendBye();
   linkNowEnd();
   lan.state = LINK_OFF;
+}
+
+// The console's BATTLE opens a fight from wherever the panel happens to be.
+// Taps go to the battle first, but render() draws the gallery, the party, the
+// minigames, the keyboard and the clock ON TOP of it -- so the fight ran
+// invisibly behind them. Everything but the battle is closed, through the same
+// exits a swipe uses, so a minigame still banks what it earned and the gallery
+// still frees its sprite. The gym and team picker reach a fight through their
+// own buttons and close themselves; this is only for the console's way in.
+static void closeScreensForBattle() {
+  if (gameOpen) leaveGame();
+  if (sackOpen) leaveSack();
+  if (spdOpen) leaveSpeed();
+  if (galleryOpen) { galleryOpen = false; galleryPick = false; galleryDetail = 0; galleryPmd.unload(); }
+  movePickOpen = false;
+  boxOpen = false; boxSel = 0;
+  partyOpen = false; partyDetail = 0;
+  kbOpen = false;
+  cardOpen = false;
+  playerOpen = false;
+  clockOpen = false;
+  trainOpen = false;
+  menuOpen = false;
+  pickOpen = false;
+  gymOpen = false; gymPick = false;
+  if (lanOpen) { lanLeave(); lanOpen = false; }
 }
 
 static void lanOffer(bool host) {

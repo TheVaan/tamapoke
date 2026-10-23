@@ -30,6 +30,7 @@ extern uint8_t btlMenu;
 extern Combatant btlYou;
 void startBattle(int16_t dex, uint8_t lvl);
 int btlCellIndexAt(int16_t x, int16_t y);
+int btlSwitchCellAt(int16_t x, int16_t y);
 void partyButtonRects(int *boxTop, int *boxBot, int *closeTop, int *closeBot);
 void uiButtonHeights(int *out, int max, int *n);
 void gymHeaderRects(int *pillTop, int *pillBot, int *rowTop);
@@ -105,6 +106,50 @@ int main(){
      "the column seam belongs to exactly one side");
   ck(btlCellIndexAt(200, 321) == 0 && btlCellIndexAt(200, 322) == 2,
      "and so does the row seam");
+
+  // The SWITCH grid holds a full squad of six (three columns over the same two
+  // rows). Same rules as the move grid: every cell reachable and finger-sized,
+  // no dead seams, the bottom row no smaller than the top, nothing reaching the
+  // BACK bar below it, and all of it inside the round panel.
+  {
+    int sarea[6] = {0,0,0,0,0,0};
+    int minX[6], maxX[6], minY[6], maxY[6];
+    for (int i = 0; i < 6; i++) { minX[i] = minY[i] = 9999; maxX[i] = maxY[i] = -1; }
+    int offPanel = 0;
+    for (int y = 0; y < 466; y++)
+      for (int x = 0; x < 466; x++) {
+        int c = btlSwitchCellAt(x, y);
+        if (c < 0) continue;
+        if (c > 5) { offPanel++; continue; }
+        sarea[c]++;
+        if (x < minX[c]) minX[c] = x;
+        if (x > maxX[c]) maxX[c] = x;
+        if (y < minY[c]) minY[c] = y;
+        if (y > maxY[c]) maxY[c] = y;
+        int dx = x - 233, dy = y - 233;
+        if (dx * dx + dy * dy > 233 * 233) offPanel++;
+      }
+    bool all = true, big = true;
+    for (int i = 0; i < 6; i++) {
+      if (!sarea[i]) all = false;
+      if (maxX[i] - minX[i] + 1 < 44 || maxY[i] - minY[i] + 1 < 44) big = false;
+    }
+    printf("      switch cells:");
+    for (int i = 0; i < 6; i++) printf(" %dx%d", maxX[i] - minX[i] + 1, maxY[i] - minY[i] + 1);
+    printf(" px\n");
+    ck(all, "all six switch cells are reachable");
+    ck(big, "and every one is at least a fingertip (44 px) each way");
+    ck(sarea[3] >= sarea[0] && sarea[4] >= sarea[1] && sarea[5] >= sarea[2],
+       "the switch grid's bottom row is not smaller than its top row");
+    ck(offPanel == 0, "the switch grid stays inside the round panel");
+    int dead = 0;
+    for (int y = 316; y <= 328; y++) if (btlSwitchCellAt(200, y) < 0) dead++;
+    for (int x = minX[0]; x <= maxX[2]; x++) if (btlSwitchCellAt(x, 300) < 0) dead++;
+    ck(dead == 0, "no dead seam between its rows or its columns");
+    int intoBack = 0;
+    for (int x = 0; x < 466; x++) if (btlSwitchCellAt(x, 384) >= 0) intoBack++;
+    ck(intoBack == 0, "and its bottom row stops short of BACK");
+  }
 
   // finally, drive a real tap low in the bottom-left cell through battleTap
   startBattle(9, 50);
