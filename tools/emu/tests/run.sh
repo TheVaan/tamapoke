@@ -61,6 +61,10 @@ standalone() { case "$1" in synth_test) return 0;; *) return 1;; esac; }
 # host's SD stubs but none of the sketch
 needs_host() { case "$1" in sprite_test) return 0;; *) return 1;; esac; }
 
+# pmu_test compiles the REAL rtcbat.cpp against stand-ins for XPowersLib and
+# SensorLib that reproduce the library behaviour under test (tools/emu/pmu/)
+needs_pmu() { case "$1" in pmu_test) return 0;; *) return 1;; esac; }
+
 pass=0; fail=0
 for src in "$HERE"/*_test.cpp; do
   name="$(basename "$src" .cpp)"
@@ -70,6 +74,7 @@ for src in "$HERE"/*_test.cpp; do
   needs_host "$name" && extra=("$EMU/host_impl.cpp" "$EMU/font.cpp")
   srcs=("${CORE[@]}")
   standalone "$name" && srcs=("$ROOT/gbsynth.cpp")
+  needs_pmu "$name" && { srcs=("$ROOT/rtcbat.cpp"); extra=(-I"$EMU/pmu"); }
   # every test starts from a clean NVS so one cannot leak state into the next
   rm -f "$OUT/tamapoke.nvs"
   if ! g++ "${FLAGS[@]}" -o "$OUT/$name" "$src" "${srcs[@]}" "${extra[@]}" 2>"$OUT/$name.log"; then
