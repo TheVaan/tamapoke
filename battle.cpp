@@ -25,7 +25,10 @@ void combatantFromPet(Combatant &c, const Pet &p) {
 }
 
 void combatantFromParty(Combatant &c, const PartyMon &m) {
-  fill(c, m.dex, (uint8_t)m.level, party.vitOf(m), party.atkOf(m), party.defOf(m),
+  // Party::begin() already clamps what it loads; this is the cast's own guard,
+  // so a record built any other way cannot wrap 256 to level 0 here.
+  uint8_t lvl = m.level < 1 ? 1 : (m.level > MAX_LEVEL ? MAX_LEVEL : (uint8_t)m.level);
+  fill(c, m.dex, lvl, party.vitOf(m), party.atkOf(m), party.defOf(m),
        party.spaOf(m), party.spdOf(m), party.speOf(m));
   for (int i = 0; i < MOVE_SLOTS; i++) c.moves[i] = m.moves[i];
   c.shiny = m.shiny != 0;

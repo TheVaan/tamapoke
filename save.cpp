@@ -18,7 +18,7 @@ const SaveField SAVE_FIELDS[] = {
   { "ivhp", SK_U8 },    { "tatk", SK_U8 },    { "tdef", SK_U8 },
   { "tspe", SK_U8 },
   // moves
-  { "mvs", SK_BYTES },  { "mvlv", SK_U8 },
+  { "mvs", SK_BYTES },  { "mvlv", SK_U8 },   { "mvq", SK_BYTES },
   // flags
   { "bk", SK_BOOL },    { "shy", SK_BOOL },   { "eshy", SK_BOOL },
   { "stpk", SK_BOOL },  { "evop", SK_U8 },    { "slpa", SK_U8 },    { "rtpn", SK_BOOL },
