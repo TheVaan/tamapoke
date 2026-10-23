@@ -904,8 +904,10 @@ void loop() {
   static uint32_t lastHealth = 0;
   if (now - lastHealth > 300000) {
     lastHealth = now;
-    Serial.printf("HEALTH up=%lus heap=%u min=%u\n", (unsigned long)(now / 1000),
-                  ESP.getFreeHeap(), ESP.getMinFreeHeap());
+    // pmu_err: PWR-button status reads that failed on I2C (see rtcbat.cpp).
+    // Nonzero on a board is the confirmation that the bus really does glitch.
+    Serial.printf("HEALTH up=%lus heap=%u min=%u pmu_err=%u\n", (unsigned long)(now / 1000),
+                  ESP.getFreeHeap(), ESP.getMinFreeHeap(), (unsigned)pmuReadErrors());
   }
 
   // 85 ms en juego/saco: margen seguro para que el redibujado no pise el envio
@@ -1203,9 +1205,10 @@ void handleSerial() {
                   ESP.getMinFreeHeap(), sdReady, pmd.loaded || mon.loaded);
     // PSRAM is where the sprites and the framebuffer live, so a memory problem
     // shows up here long before it shows up in the heap figure above.
-    Serial.printf("psram=%u screen=%s btlspr=%d/%d\n", (unsigned)ESP.getFreePsram(),
+    Serial.printf("psram=%u screen=%s btlspr=%d/%d pmu_err=%u\n", (unsigned)ESP.getFreePsram(),
                   SCREEN_NAME[uiCurrentScreen() % SCR_COUNT],
-                  btlPmd[0].loaded ? 1 : 0, btlPmd[1].loaded ? 1 : 0);
+                  btlPmd[0].loaded ? 1 : 0, btlPmd[1].loaded ? 1 : 0,
+                  (unsigned)pmuReadErrors());
     bootReportAgain();
     Serial.println("DONE");
   } else if (line == "STATS") {

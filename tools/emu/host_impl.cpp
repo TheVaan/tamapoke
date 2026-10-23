@@ -166,6 +166,7 @@ bool batCharging() { return false; }
 bool usbPresent() { return true; }
 void pwrSetup() {}
 bool pwrShortPressed() { return false; }
+uint32_t pmuReadErrors() { return 0; }
 
 // --- audio (silent) ---
 void audioBegin() {}
