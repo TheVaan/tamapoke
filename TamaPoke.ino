@@ -1217,50 +1217,62 @@ void handleTouch() {
 void openClock();  // prototipo
 
 void onSwipeV(int dir) {
-  if (pet.awaitingStarter()) return;  // bloqueado durante la eleccion de inicial
-  if (uiCurrentScreen() == SCR_DEXPICK || uiCurrentScreen() == SCR_GYMPICK)
-    return;                 // on the chooser, vertical does nothing: pick a row
-  if (menuOpen) { menuOpen = false; return; }   // any swipe closes the menu
-  if (battleOpen) return;   // no swiping out of a fight
-  if (pickOpen) { pickOpen = false; return; }
-  if (lanOpen) { lanLeave(); lanOpen = false; return; }
-  if (gymOpen) {
-    // Same gesture as the Pokedex: vertical changes region, horizontal pages.
-    gymRegion = (uint8_t)((gymRegion + (dir > 0 ? 1 : GYM_REGIONS - 1)) % GYM_REGIONS);
-    gymPage = 0;
-    sfxPlay(SFX_TAP);
-    return;
+  switch (uiCurrentScreen()) {
+    case SCR_REGION:
+    case SCR_STARTER: return;     // bloqueado durante la eleccion de inicial
+    case SCR_DEXPICK:
+    case SCR_GYMPICK: return;     // on the chooser, vertical does nothing: pick a row
+    case SCR_MENU: menuOpen = false; return;   // any swipe closes the menu
+    case SCR_BATTLE:
+    case SCR_WIN: return;         // no swiping out of a fight
+    case SCR_PICK: pickOpen = false; return;
+    case SCR_LAN: lanLeave(); lanOpen = false; return;
+    case SCR_GYM:
+      // Same gesture as the Pokedex: vertical changes region, horizontal pages.
+      gymRegion = (uint8_t)((gymRegion + (dir > 0 ? 1 : GYM_REGIONS - 1)) % GYM_REGIONS);
+      gymPage = 0;
+      sfxPlay(SFX_TAP);
+      return;
+    case SCR_PLAYER: playerOpen = false; return;
+    case SCR_TRAIN: trainOpen = false; return;
+    case SCR_MOVEPICK: movePickOpen = false; return;
+    case SCR_BOX: boxOpen = false; boxSel = 0; return;   // vertical backs out
+    case SCR_PARTY:
+      if (partyDetail) { partyDetail = 0; return; }
+      if (partyPick) { partyPick = false; pet.endedKind = CER_NONE; }
+      partyOpen = false;
+      return;
+    case SCR_GAME:
+      // Either minigame exits on a swipe. A swipe cannot be confused with a ball
+      // hit -- the gesture resolver separates them -- which the header tap no
+      // longer can now that the ball is hittable up there.
+      if (gameOpen) leaveGame();
+      else if (sackOpen) leaveSack();
+      else leaveSpeed();
+      return;
+    case SCR_GALLERY:
+      if (galleryDetail) { galleryDetail = 0; galleryPmd.unload(); galleryDirty = true; return; }
+      galleryRegion = (uint8_t)((galleryRegion + (dir > 0 ? 1 : GAL_REGIONS - 1)) % GAL_REGIONS);
+      galleryPage = 0;
+      galleryDirty = true;
+      sfxPlay(SFX_TAP);
+      return;
+    case SCR_KEYBOARD: return;
+    // Modal: it decides the creature's moveset for good, so nothing -- not a
+    // swipe either -- happens until it is answered. A swipe here used to open
+    // the player card behind it.
+    case SCR_LEARN: return;
+    case SCR_CLOCK:
+      if (pet.ceremony) return;
+      clockOpen = false;
+      return;
+    case SCR_CARD:
+      if (pet.ceremony) return;
+      if (dir < 0) cardOpen = false;  // arriba cierra la ficha
+      return;
+    default: break;   // SCR_MAIN
   }
-  if (playerOpen) { playerOpen = false; return; }
-  if (trainOpen) { trainOpen = false; return; }
-  if (movePickOpen) { movePickOpen = false; return; }
-  if (boxOpen) { boxOpen = false; boxSel = 0; return; }   // vertical backs out
-  if (partyOpen) {
-    if (partyDetail) { partyDetail = 0; return; }
-    if (partyPick) { partyPick = false; pet.endedKind = CER_NONE; }
-    partyOpen = false;
-    return;
-  }
-  // Either minigame exits on a swipe. A swipe cannot be confused with a ball
-  // hit -- the gesture resolver separates them -- which the header tap no
-  // longer can now that the ball is hittable up there.
-  if (gameOpen) { leaveGame(); return; }
-  if (sackOpen) { leaveSack(); return; }
-  if (spdOpen) { leaveSpeed(); return; }
-  if (galleryOpen) {
-    if (galleryDetail) { galleryDetail = 0; galleryPmd.unload(); galleryDirty = true; return; }
-    galleryRegion = (uint8_t)((galleryRegion + (dir > 0 ? 1 : GAL_REGIONS - 1)) % GAL_REGIONS);
-    galleryPage = 0;
-    galleryDirty = true;
-    sfxPlay(SFX_TAP);
-    return;
-  }
-  if (kbOpen || pet.ceremony) return;
-  if (clockOpen) { clockOpen = false; return; }
-  if (cardOpen) {
-    if (dir < 0) cardOpen = false;  // arriba cierra la ficha
-    return;
-  }
+  if (pet.ceremony) return;
   // Swipe down is the PLAYER card, up is the creature's. The clock lost this
   // gesture on purpose -- the menu's SETTINGS row already opens it, and the
   // player card is the thing you reach for far more often.
@@ -1577,327 +1589,354 @@ void onSwipe(int dir) {
   // own horizontal handler that would otherwise swallow the gesture. Paging a
   // screen by closing it is the bug this project shipped four times.
   if (rpickSwipe(dir)) return;
-  if (pet.awaitingStarter()) return;  // bloqueado durante la eleccion de inicial
-  if (menuOpen) { menuOpen = false; return; }   // any swipe closes the menu
-  if (battleOpen) return;   // no swiping out of a fight
-  if (pickOpen) {   // horizontal pages the candidates, as everywhere else
-    uint8_t pages = (pickCandidates() + PICK_PER_PAGE - 1) / PICK_PER_PAGE;
-    if (!pages) pages = 1;
-    int p = (int)pickPage + (dir > 0 ? -1 : 1);
-    if (p < 0 || p >= pages) pickOpen = false;
-    else pickPage = (uint8_t)p;
-    return;
-  }
-  if (gymOpen) {   // horizontal pages the ladder; vertical backs out
-    uint8_t pages = (TRAINER_COUNT + GYM_ROWS - 1) / GYM_ROWS;
-    int p = (int)gymPage + (dir > 0 ? -1 : 1);
-    if (p < 0 || p >= pages) { gymPick = true; rpickPage = 0; }  // back to the chooser
-    else gymPage = (uint8_t)p;
-    return;
-  }
-  if (playerOpen) {   // horizontal pages it, like the card and the gallery
-    int p = (int)playerPage + (dir > 0 ? -1 : 1);
-    if (p < 0 || p >= PLAYER_PAGES) playerOpen = false;
-    else playerPage = (uint8_t)p;
-    return;
-  }
-  if (trainOpen) { trainOpen = false; return; }
-  if (movePickOpen) {   // the picker is paged; without this its later pages
-    uint8_t all[64];    // were simply unreachable
-    uint8_t n = learnableList(all, sizeof(all));
-    uint8_t pages = n ? (n + MOVE_PICK_PER_PAGE - 1) / MOVE_PICK_PER_PAGE : 1;
-    int p = (int)movePickPage + (dir > 0 ? -1 : 1);
-    if (p < 0 || p >= pages) movePickOpen = false;
-    else movePickPage = (uint8_t)p;
-    return;
-  }
-  if (boxOpen) {   // horizontal pages the box, as every other paged screen
-    uint8_t pages = BOX_SLOTS / BOX_PER_PAGE;
-    int p = (int)boxPage + (dir > 0 ? -1 : 1);
-    if (p < 0 || p >= pages) { boxOpen = false; boxSel = 0; }
-    else boxPage = (uint8_t)p;
-    return;
-  }
-  if (partyOpen) {
-    if (partyDetail) { partyDetail = 0; return; }
-    if (partyPick) { partyPick = false; pet.endedKind = CER_NONE; }
-    partyOpen = false;
-    return;
-  }
-  if (gameOpen) { leaveGame(); return; }   // swipe out, keeping what you earned
-  if (spdOpen) { leaveSpeed(); return; }
-  if (kbOpen || clockOpen) return;
-  if (cardOpen) {  // dentro de la ficha: cambiar entre las 4 paginas
-    int p = (int)cardPage + (dir > 0 ? -1 : 1);  // izquierda avanza
-    cardPage = p < 0 ? 0 : (p > CARD_PAGES - 1 ? CARD_PAGES - 1 : p);
-    return;
-  }
-  if (!galleryOpen) {
-    // Swipe LEFT is the gym ladder, RIGHT is the party. The Pokedex lost this
-    // gesture: it has a menu row, and gestures are worth more spent on screens
-    // without one.
-    if (!pet.ceremony && !confirmUntil) {
-      if (dir < 0) { gymOpen = true; gymPick = true; gymPage = 0; rpickPage = 0; }
-      else partyOpen = true;
+  switch (uiCurrentScreen()) {
+    case SCR_REGION:
+    case SCR_STARTER: return;     // bloqueado durante la eleccion de inicial
+    case SCR_DEXPICK:
+    case SCR_GYMPICK: return;     // rpickSwipe() above owns these
+    case SCR_MENU: menuOpen = false; return;   // any swipe closes the menu
+    case SCR_BATTLE:
+    case SCR_WIN: return;         // no swiping out of a fight
+    case SCR_PICK: {  // horizontal pages the candidates, as everywhere else
+      uint8_t pages = (pickCandidates() + PICK_PER_PAGE - 1) / PICK_PER_PAGE;
+      if (!pages) pages = 1;
+      int p = (int)pickPage + (dir > 0 ? -1 : 1);
+      if (p < 0 || p >= pages) pickOpen = false;
+      else pickPage = (uint8_t)p;
+      return;
     }
-    return;
+    // Not paged, so a swipe backs out -- exactly as the vertical one always
+    // did. There was no case here at all: the gesture fell through to the main
+    // screen's handler and opened the party OVER the LAN screen while lanOpen
+    // stayed set, so taps on a party slot hit HOST/JOIN underneath.
+    case SCR_LAN: lanLeave(); lanOpen = false; return;
+    case SCR_GYM: {   // horizontal pages the ladder; vertical backs out
+      uint8_t pages = (TRAINER_COUNT + GYM_ROWS - 1) / GYM_ROWS;
+      int p = (int)gymPage + (dir > 0 ? -1 : 1);
+      if (p < 0 || p >= pages) { gymPick = true; rpickPage = 0; }  // back to the chooser
+      else gymPage = (uint8_t)p;
+      return;
+    }
+    case SCR_PLAYER: {   // horizontal pages it, like the card and the gallery
+      int p = (int)playerPage + (dir > 0 ? -1 : 1);
+      if (p < 0 || p >= PLAYER_PAGES) playerOpen = false;
+      else playerPage = (uint8_t)p;
+      return;
+    }
+    case SCR_TRAIN: trainOpen = false; return;
+    case SCR_MOVEPICK: {   // the picker is paged; without this its later pages
+      uint8_t all[64];     // were simply unreachable
+      uint8_t n = learnableList(all, sizeof(all));
+      uint8_t pages = n ? (n + MOVE_PICK_PER_PAGE - 1) / MOVE_PICK_PER_PAGE : 1;
+      int p = (int)movePickPage + (dir > 0 ? -1 : 1);
+      if (p < 0 || p >= pages) movePickOpen = false;
+      else movePickPage = (uint8_t)p;
+      return;
+    }
+    case SCR_BOX: {   // horizontal pages the box, as every other paged screen
+      uint8_t pages = BOX_SLOTS / BOX_PER_PAGE;
+      int p = (int)boxPage + (dir > 0 ? -1 : 1);
+      if (p < 0 || p >= pages) { boxOpen = false; boxSel = 0; }
+      else boxPage = (uint8_t)p;
+      return;
+    }
+    case SCR_PARTY:
+      if (partyDetail) { partyDetail = 0; return; }
+      if (partyPick) { partyPick = false; pet.endedKind = CER_NONE; }
+      partyOpen = false;
+      return;
+    case SCR_GAME:   // swipe out, keeping what you earned
+      if (gameOpen) leaveGame();
+      else if (spdOpen) leaveSpeed();
+      return;        // the bag reads raw touches and never resolves a swipe
+    case SCR_KEYBOARD:
+    case SCR_CLOCK: return;
+    case SCR_LEARN: return;   // modal, see onSwipeV()
+    case SCR_CARD: {  // dentro de la ficha: cambiar entre las 4 paginas
+      int p = (int)cardPage + (dir > 0 ? -1 : 1);  // izquierda avanza
+      cardPage = p < 0 ? 0 : (p > CARD_PAGES - 1 ? CARD_PAGES - 1 : p);
+      return;
+    }
+    case SCR_GALLERY: {
+      if (galleryDetail) {  // en detalle: volver a la rejilla
+        galleryDetail = 0;
+        galleryPmd.unload();
+        galleryDirty = true;
+        return;
+      }
+      int np = galleryPage - dir;  // deslizar a la izquierda avanza pagina
+      if (np < 0) {                // back past the first page = the region chooser
+        galleryPick = true;
+        rpickPage = 0;
+        galleryPmd.unload();
+        return;
+      }
+      if (np > GAL_PAGES - 1) np = GAL_PAGES - 1;
+      if (np != galleryPage) {
+        galleryPage = np;
+        galleryDirty = true;
+      }
+      return;
+    }
+    default: break;   // SCR_MAIN
   }
-  if (galleryDetail) {  // en detalle: volver a la rejilla
-    galleryDetail = 0;
-    galleryPmd.unload();
-    galleryDirty = true;
-    return;
-  }
-  int np = galleryPage - dir;  // deslizar a la izquierda avanza pagina
-  if (np < 0) {                // back past the first page = the region chooser
-    galleryPick = true;
-    rpickPage = 0;
-    galleryPmd.unload();
-    return;
-  }
-  if (np > GAL_PAGES - 1) np = GAL_PAGES - 1;
-  if (np != galleryPage) {
-    galleryPage = np;
-    galleryDirty = true;
+  // Swipe LEFT is the gym ladder, RIGHT is the party. The Pokedex lost this
+  // gesture: it has a menu row, and gestures are worth more spent on screens
+  // without one.
+  if (!pet.ceremony && !confirmUntil) {
+    if (dir < 0) { gymOpen = true; gymPick = true; gymPage = 0; rpickPage = 0; }
+    else partyOpen = true;
   }
 }
 
 void onTap(int16_t x, int16_t y) {
-  if (pet.awaitingStarter()) {  // primera partida: region y luego inicial
-    if (!starterRegionDone) {
-      int r = regionPickTap(x, y, RPICK_FOR_START);
-      if (r >= 0) {
-        pet.setRegion((uint8_t)r);   // the region picked here is where eggs come from too
-        starterRegionDone = true;
-        sfxPlay(SFX_TAP);
-      }
-      return;
-    }
-    for (int i = 0; i < starterCountShown(pet.region); i++) {
-      int ry = STARTER_ROW_Y + i * (STARTER_ROW_H + STARTER_ROW_GAP);
-      if (x >= 70 && x <= 396 && y >= ry && y <= ry + STARTER_ROW_H) {
-        pet.chooseStarter(starterOf(pet.region, (uint8_t)i));
-        sfxPlay(SFX_TAP);
-        break;
-      }
-    }
-    return;
-  }
-  if (battleOpen) {
-    battleTap(x, y);
-    return;
-  }
-  if (playerOpen) {
-    if (playerPage == 0 && y >= 32 && y < 68) {   // the name: rename yourself
-      openKeyboardFor(KB_TRAINER);
-      sfxPlay(SFX_TAP);
-      return;
-    }
-    // the avatar is the only other live target; everything else backs out
-    if (playerPage == 0 && x > CX - 40 && x < CX + 40 && y > 70 && y < 146) {
-      pet.avatar = (uint8_t)((pet.avatar + 1) % AVATAR_COUNT);
-      pet.flushSave();
-      sfxPlay(SFX_TAP);
-      return;
-    }
-    playerOpen = false;
-    return;
-  }
-  if (pickOpen) {
-    pickTap(x, y);
-    return;
-  }
-  if (lanOpen) {
-    lanTap(x, y);
-    return;
-  }
-  if (gymOpen && gymPick) {
-    int r = regionPickTap(x, y, RPICK_FOR_GYMS);
-    if (r >= 0) {
-      gymRegion = (uint8_t)r;
-      gymPage = 0;
-      gymPick = false;
-      sfxPlay(SFX_TAP);
-      return;
-    }
-    if (y >= LANBTN_Y && y <= LANBTN_Y + LANBTN_H &&
-        x >= LANBTN_X && x <= LANBTN_X + LANBTN_W) {   // LAN battle
-      gymOpen = false; gymPick = false;
-      lan.state = LINK_OFF;
-      lanOpen = true;
-      sfxPlay(SFX_TAP);
-      return;
-    }
-    if (y > 380) { gymOpen = false; gymPick = false; }
-    return;
-  }
-  if (gymOpen) {
-    if (y >= GYMDIF_Y && y <= GYMDIF_Y + GYMDIF_H) {   // the difficulty pill
-      gymHard = !gymHard;
-      sfxPlay(SFX_TAP);
-      return;
-    }
-    if (y >= 380 && y <= 412 && x >= 148 && x <= 318) {   // LAN battle
-      gymOpen = false;
-      lan.state = LINK_OFF;
-      lanOpen = true;
-      sfxPlay(SFX_TAP);
-      return;
-    }
-    for (int i = 0; i < GYM_ROWS; i++) {
-      uint8_t idx = gymPage * GYM_ROWS + i;
-      if (idx >= TRAINER_COUNT) break;
-      int ry = GYM_ROW_Y(i);
-      if (x < 70 || x > 396 || y < ry || y > ry + 44) continue;
-      if (!gymUnlocked(idx, gymHard)) { sfxPlay(SFX_DENY); return; }
-      sfxPlay(SFX_TAP);
-      gymOpen = false;
-      pickTrainer = idx;
-      pickHard = gymHard;
-      pickPage = 0;
-      pickDefault(squadCap(idx, gymHard));
-      pickOpen = true;
-      return;
-    }
-    gymOpen = false;
-    return;
-  }
-  if (pet.hasLearnOffer()) {
-    for (int i = 0; i < MOVE_SLOTS; i++) {
-      int ry = LEARN_ROW_Y(i);
-      if (x < 70 || x > 396 || y < ry || y > ry + 50) continue;
-      sfxPlay(SFX_TAP);
-      pet.acceptLearn(i);
-      return;
-    }
-    if (x >= 70 && x <= 396 && y >= LEARN_SKIP_Y && y <= LEARN_SKIP_Y + 44) {
-      sfxPlay(SFX_TAP);
-      pet.declineLearn();
-    }
-    return;   // modal: nothing else on screen responds until it is answered
-  }
-  if (trainOpen) {
-    bool inPanel = (x >= TRAIN_X && x <= TRAIN_X + TRAIN_W &&
-                    y >= TRAIN_Y && y <= TRAIN_Y + TRAIN_H);
-    if (!inPanel) { trainOpen = false; return; }   // tap outside = back to the pet
-    for (int i = 0; i < 3; i++) {   // all three train something now
-      int ry = TRAIN_ROW_Y(i);
-      if (x < TRAIN_X + 18 || x > TRAIN_X + TRAIN_W - 18) continue;
-      if (y < ry || y > ry + TRAIN_ROW_H) continue;
-      sfxPlay(SFX_TAP);
-      trainOpen = false;
-      if (i == 0) startSack();
-      else if (i == 1) startSpeedGame();
-      else startGame();          // the ball game trains DEF
-      return;
-    }
-    return;
-  }
-  // The menu is modal and has three independent ways out: the CLOSE row, a tap
-  // anywhere on the dimmed area outside the panel, and any swipe (see onSwipe).
-  // Deliberately no timeout: a menu that vanishes while you read it is worse
-  // than one that lingers.
-  if (menuOpen) {
-    bool inPanel = (x >= MENU_X && x <= MENU_X + MENU_W &&
-                    y >= MENU_Y && y <= MENU_Y + MENU_H);
-    if (!inPanel) { menuOpen = false; return; }   // tap outside = back to the pet
-    for (int i = 0; i < MENU_ROWS; i++) {
-      int ry = MENU_ROW_Y(i);
-      if (x < MENU_X + 18 || x > MENU_X + MENU_W - 18) continue;
-      if (y < ry || y > ry + MENU_ROW_H) continue;
-      sfxPlay(SFX_TAP);
-      menuOpen = false;
-      if (i == 0) { cardOpen = true; cardPage = 1; }   // straight to the stats page
-      else if (i == 1) { galleryOpen = true; galleryPick = true; galleryPage = 0; rpickPage = 0; galleryDetail = 0; galleryDirty = true; }
-      else if (i == 2) { openClock(); }
-      else if (i == 3) {
-        if (!pet.canRetireNow()) { sfxPlay(SFX_DENY); return; }
-        choiceKind = 3; choiceUntil = millis() + 12000;
-      }
-      return;                                     // i == 4 is CLOSE: just shut
-    }
-    return;
-  }
-  if (movePickOpen) {
-    uint8_t all[64];
-    uint8_t n = learnableList(all, sizeof(all));
-    for (uint8_t i = 0; i < MOVE_PICK_PER_PAGE; i++) {
-      uint8_t idx = movePickPage * MOVE_PICK_PER_PAGE + i;
-      if (idx >= n) break;
-      int ry = MOVE_PICK_Y(i);
-      if (x < 70 || x > 396 || y < ry || y > ry + 50) continue;
-      sfxPlay(SFX_TAP);
-      // Swapping for a move already in another slot would silently duplicate
-      // it, so trade the two slots instead of overwriting.
-      uint8_t *tgt = pickTargetMoves();
-      for (int s = 0; s < MOVE_SLOTS; s++)
-        if (tgt[s] == all[idx] && s != movePickSlot) tgt[s] = tgt[movePickSlot];
-      tgt[movePickSlot] = all[idx];
-      if (movePickParty) party.save(); else pet.flushSave();
-      movePickOpen = false;
-      return;
-    }
-    movePickOpen = false;   // tap anywhere else = back to the moves page
-    return;
-  }
-  if (partyOpen) {
-    partyTap(x, y);
-    return;
-  }
-  if (galleryOpen) {
-    if (galleryPick) {
-      int r = regionPickTap(x, y, RPICK_FOR_DEX);
-      if (r >= 0) {
-        galleryRegion = (uint8_t)r;
-        galleryPage = 0;
-        galleryDetail = 0;
-        galleryDirty = true;
-        galleryPick = false;
-        sfxPlay(SFX_TAP);
-      } else if (y > 380) {
-        galleryOpen = false;
-      }
-      return;
-    }
-    galleryTap(x, y);
-    return;
-  }
-  if (kbOpen) {
-    keyboardTap(x, y);
-    return;
-  }
-  if (clockOpen) {
-    clockTap(x, y);
-    return;
-  }
-  if (pet.ceremony) return;  // durante la despedida no hay botones
-  if (cardOpen) {
-    if (cardPage == 0 && y < 84) openKeyboard();  // tocar el nombre = renombrar
-    else if (cardPage == 2) {
-      for (int i = 0; i < MOVE_SLOTS; i++) {   // tap a slot to change it
-        int ry = MOVE_ROW_Y(i);
-        if (x < 70 || x > 396 || y < ry || y > ry + 50) continue;
-        sfxPlay(SFX_TAP);
-        movePickParty = 0;      // the live pet
-        movePickSlot = i;
-        movePickPage = 0;
-        movePickOpen = true;
+  switch (uiCurrentScreen()) {
+    case SCR_REGION:
+    case SCR_STARTER: {
+      if (!starterRegionDone) {
+        int r = regionPickTap(x, y, RPICK_FOR_START);
+        if (r >= 0) {
+          pet.setRegion((uint8_t)r);   // the region picked here is where eggs come from too
+          starterRegionDone = true;
+          sfxPlay(SFX_TAP);
+        }
         return;
       }
-      cardOpen = false;            // anywhere else on the page still exits
-    } else {
-      cardOpen = false;
+      for (int i = 0; i < starterCountShown(pet.region); i++) {
+        int ry = STARTER_ROW_Y + i * (STARTER_ROW_H + STARTER_ROW_GAP);
+        if (x >= 70 && x <= 396 && y >= ry && y <= ry + STARTER_ROW_H) {
+          pet.chooseStarter(starterOf(pet.region, (uint8_t)i));
+          sfxPlay(SFX_TAP);
+          break;
+        }
+      }
+      return;
     }
-    return;
+    case SCR_BATTLE:
+    case SCR_WIN: {
+      battleTap(x, y);
+      return;
+    }
+    case SCR_PLAYER: {
+      if (playerPage == 0 && y >= 32 && y < 68) {   // the name: rename yourself
+        openKeyboardFor(KB_TRAINER);
+        sfxPlay(SFX_TAP);
+        return;
+      }
+      // the avatar is the only other live target; everything else backs out
+      if (playerPage == 0 && x > CX - 40 && x < CX + 40 && y > 70 && y < 146) {
+        pet.avatar = (uint8_t)((pet.avatar + 1) % AVATAR_COUNT);
+        pet.flushSave();
+        sfxPlay(SFX_TAP);
+        return;
+      }
+      playerOpen = false;
+      return;
+    }
+    case SCR_PICK: {
+      pickTap(x, y);
+      return;
+    }
+    case SCR_LAN: {
+      lanTap(x, y);
+      return;
+    }
+    case SCR_GYMPICK: {
+      int r = regionPickTap(x, y, RPICK_FOR_GYMS);
+      if (r >= 0) {
+        gymRegion = (uint8_t)r;
+        gymPage = 0;
+        gymPick = false;
+        sfxPlay(SFX_TAP);
+        return;
+      }
+      if (y >= LANBTN_Y && y <= LANBTN_Y + LANBTN_H &&
+          x >= LANBTN_X && x <= LANBTN_X + LANBTN_W) {   // LAN battle
+        gymOpen = false; gymPick = false;
+        lan.state = LINK_OFF;
+        lanOpen = true;
+        sfxPlay(SFX_TAP);
+        return;
+      }
+      if (y > 380) { gymOpen = false; gymPick = false; }
+      return;
+    }
+    case SCR_GYM: {
+      if (y >= GYMDIF_Y && y <= GYMDIF_Y + GYMDIF_H) {   // the difficulty pill
+        gymHard = !gymHard;
+        sfxPlay(SFX_TAP);
+        return;
+      }
+      if (y >= 380 && y <= 412 && x >= 148 && x <= 318) {   // LAN battle
+        gymOpen = false;
+        lan.state = LINK_OFF;
+        lanOpen = true;
+        sfxPlay(SFX_TAP);
+        return;
+      }
+      for (int i = 0; i < GYM_ROWS; i++) {
+        uint8_t idx = gymPage * GYM_ROWS + i;
+        if (idx >= TRAINER_COUNT) break;
+        int ry = GYM_ROW_Y(i);
+        if (x < 70 || x > 396 || y < ry || y > ry + 44) continue;
+        if (!gymUnlocked(idx, gymHard)) { sfxPlay(SFX_DENY); return; }
+        sfxPlay(SFX_TAP);
+        gymOpen = false;
+        pickTrainer = idx;
+        pickHard = gymHard;
+        pickPage = 0;
+        pickDefault(squadCap(idx, gymHard));
+        pickOpen = true;
+        return;
+      }
+      gymOpen = false;
+      return;
+    }
+    case SCR_LEARN: {
+      for (int i = 0; i < MOVE_SLOTS; i++) {
+        int ry = LEARN_ROW_Y(i);
+        if (x < 70 || x > 396 || y < ry || y > ry + 50) continue;
+        sfxPlay(SFX_TAP);
+        pet.acceptLearn(i);
+        return;
+      }
+      if (x >= 70 && x <= 396 && y >= LEARN_SKIP_Y && y <= LEARN_SKIP_Y + 44) {
+        sfxPlay(SFX_TAP);
+        pet.declineLearn();
+      }
+      return;   // modal: nothing else on screen responds until it is answered
+      return;
+    }
+    case SCR_TRAIN: {
+      bool inPanel = (x >= TRAIN_X && x <= TRAIN_X + TRAIN_W &&
+                      y >= TRAIN_Y && y <= TRAIN_Y + TRAIN_H);
+      if (!inPanel) { trainOpen = false; return; }   // tap outside = back to the pet
+      for (int i = 0; i < 3; i++) {   // all three train something now
+        int ry = TRAIN_ROW_Y(i);
+        if (x < TRAIN_X + 18 || x > TRAIN_X + TRAIN_W - 18) continue;
+        if (y < ry || y > ry + TRAIN_ROW_H) continue;
+        sfxPlay(SFX_TAP);
+        trainOpen = false;
+        if (i == 0) startSack();
+        else if (i == 1) startSpeedGame();
+        else startGame();          // the ball game trains DEF
+        return;
+      }
+      return;
+    }
+    // The menu is modal and has three independent ways out: the CLOSE row, a tap
+    // anywhere on the dimmed area outside the panel, and any swipe (see onSwipe).
+    // Deliberately no timeout: a menu that vanishes while you read it is worse
+    // than one that lingers.
+    case SCR_MENU: {
+      bool inPanel = (x >= MENU_X && x <= MENU_X + MENU_W &&
+                      y >= MENU_Y && y <= MENU_Y + MENU_H);
+      if (!inPanel) { menuOpen = false; return; }   // tap outside = back to the pet
+      for (int i = 0; i < MENU_ROWS; i++) {
+        int ry = MENU_ROW_Y(i);
+        if (x < MENU_X + 18 || x > MENU_X + MENU_W - 18) continue;
+        if (y < ry || y > ry + MENU_ROW_H) continue;
+        sfxPlay(SFX_TAP);
+        menuOpen = false;
+        if (i == 0) { cardOpen = true; cardPage = 1; }   // straight to the stats page
+        else if (i == 1) { galleryOpen = true; galleryPick = true; galleryPage = 0; rpickPage = 0; galleryDetail = 0; galleryDirty = true; }
+        else if (i == 2) { openClock(); }
+        else if (i == 3) {
+          if (!pet.canRetireNow()) { sfxPlay(SFX_DENY); return; }
+          choiceKind = 3; choiceUntil = millis() + 12000;
+        }
+        return;                                     // i == 4 is CLOSE: just shut
+      }
+      return;
+    }
+    case SCR_MOVEPICK: {
+      uint8_t all[64];
+      uint8_t n = learnableList(all, sizeof(all));
+      for (uint8_t i = 0; i < MOVE_PICK_PER_PAGE; i++) {
+        uint8_t idx = movePickPage * MOVE_PICK_PER_PAGE + i;
+        if (idx >= n) break;
+        int ry = MOVE_PICK_Y(i);
+        if (x < 70 || x > 396 || y < ry || y > ry + 50) continue;
+        sfxPlay(SFX_TAP);
+        // Swapping for a move already in another slot would silently duplicate
+        // it, so trade the two slots instead of overwriting.
+        uint8_t *tgt = pickTargetMoves();
+        for (int s = 0; s < MOVE_SLOTS; s++)
+          if (tgt[s] == all[idx] && s != movePickSlot) tgt[s] = tgt[movePickSlot];
+        tgt[movePickSlot] = all[idx];
+        if (movePickParty) party.save(); else pet.flushSave();
+        movePickOpen = false;
+        return;
+      }
+      movePickOpen = false;   // tap anywhere else = back to the moves page
+      return;
+    }
+    case SCR_PARTY:
+    case SCR_BOX: {
+      partyTap(x, y);
+      return;
+    }
+    case SCR_DEXPICK:
+    case SCR_GALLERY: {
+      if (galleryPick) {
+        int r = regionPickTap(x, y, RPICK_FOR_DEX);
+        if (r >= 0) {
+          galleryRegion = (uint8_t)r;
+          galleryPage = 0;
+          galleryDetail = 0;
+          galleryDirty = true;
+          galleryPick = false;
+          sfxPlay(SFX_TAP);
+        } else if (y > 380) {
+          galleryOpen = false;
+        }
+        return;
+      }
+      galleryTap(x, y);
+      return;
+    }
+    case SCR_KEYBOARD: {
+      keyboardTap(x, y);
+      return;
+    }
+    case SCR_CLOCK: {
+      clockTap(x, y);
+      return;
+    }
+    case SCR_CARD: {
+      if (pet.ceremony) return;  // durante la despedida no hay botones
+      if (cardPage == 0 && y < 84) openKeyboard();  // tocar el nombre = renombrar
+      else if (cardPage == 2) {
+        for (int i = 0; i < MOVE_SLOTS; i++) {   // tap a slot to change it
+          int ry = MOVE_ROW_Y(i);
+          if (x < 70 || x > 396 || y < ry || y > ry + 50) continue;
+          sfxPlay(SFX_TAP);
+          movePickParty = 0;      // the live pet
+          movePickSlot = i;
+          movePickPage = 0;
+          movePickOpen = true;
+          return;
+        }
+        cardOpen = false;            // anywhere else on the page still exits
+      } else {
+        cardOpen = false;
+      }
+      return;
+    }
+    case SCR_GAME:
+      if (pet.ceremony) return;
+      if (spdOpen) {
+        spdTap(x, y);
+        return;
+      }
+      if (gameOpen) {
+        gameTap(x, y);
+        return;
+      }
+      return;   // the bag reads its taps raw, in handleTouch()
+    default: break;   // SCR_MAIN
   }
-  if (spdOpen) {
-    spdTap(x, y);
-    return;
-  }
-  if (gameOpen) {
-    gameTap(x, y);
-    return;
-  }
+  if (pet.ceremony) return;  // durante la despedida no hay botones
   if (choiceKind) {          // dialogo de decision: boton accion (arriba) / mantener (abajo)
     int c1t, c1b, c2t, c2b;
     uiConfirmRects(&c1t, &c1b, &c2t, &c2b);
@@ -2143,24 +2182,33 @@ RTC_NOINIT_ATTR uint32_t gCrumbScreen;
 RTC_NOINIT_ATTR uint32_t gCrumbHeap;
 
 
-// Which screen is on the panel RIGHT NOW, in the same order render() tests.
+// Which screen is on the panel -- and therefore which screen a tap or a swipe
+// belongs to. THE ONE ANSWER: render(), onTap(), onSwipe(), onSwipeV(), the
+// long-press gate and the crash breadcrumb all switch on this.
+//
+// They used to keep their own if-chains over the same flags, each in its own
+// order, and the orders disagreed. render() drew the minigame while onTap()
+// asked hasLearnOffer() first, so a level-up during the ball game turned every
+// tap into an invisible "replace this move?" answer -- a move overwritten for
+// good. The keyboard opened from the player card was drawn while taps went to
+// the card underneath. The order here is render()'s, because what is DRAWN is
+// what the player is pressing.
 uint8_t uiCurrentScreen() {
   if (pet.awaitingStarter()) return starterRegionDone ? SCR_STARTER : SCR_REGION;
   if (galleryOpen) return galleryPick ? SCR_DEXPICK : SCR_GALLERY;
   if (movePickOpen) return SCR_MOVEPICK;
   if (partyOpen) return boxOpen ? SCR_BOX : SCR_PARTY;
+  if (gameOpen || sackOpen || spdOpen) return SCR_GAME;
+  if (trainOpen) return SCR_TRAIN;
   if (kbOpen) return SCR_KEYBOARD;
-  if (cardOpen) return SCR_CARD;
-  if (playerOpen) return SCR_PLAYER;
   if (clockOpen) return SCR_CLOCK;
-  if (btlWinUntil) return SCR_WIN;
-  if (battleOpen) return SCR_BATTLE;
+  if (battleOpen) return btlWinUntil ? SCR_WIN : SCR_BATTLE;
   if (pickOpen) return SCR_PICK;
   if (lanOpen) return SCR_LAN;
   if (gymOpen) return gymPick ? SCR_GYMPICK : SCR_GYM;
+  if (playerOpen) return SCR_PLAYER;
   if (pet.hasLearnOffer()) return SCR_LEARN;
-  if (gameOpen || sackOpen || spdOpen) return SCR_GAME;
-  if (trainOpen) return SCR_TRAIN;
+  if (cardOpen) return SCR_CARD;
   if (menuOpen) return SCR_MENU;
   return SCR_MAIN;
 }
@@ -2206,81 +2254,41 @@ void bootReport() {
 
 void render() {
   crumbDrop();   // so a crash can name the screen it happened on
-  if (pet.awaitingStarter()) {  // primera partida: region y luego inicial
-    if (!starterRegionDone) renderRegionPick(RPICK_FOR_START);
-    else renderStarterSelect();
-    return;
-  }
-  if (galleryOpen) {
-    if (galleryPick) { renderRegionPick(RPICK_FOR_DEX); return; }
-    renderGallery();
-    return;
-  }
-  if (movePickOpen) {
-    renderMovePick();
-    return;
-  }
-  if (partyOpen) {
-    if (boxOpen) {
+  switch (uiCurrentScreen()) {
+    case SCR_REGION: renderRegionPick(RPICK_FOR_START); return;
+    case SCR_STARTER: renderStarterSelect(); return;
+    case SCR_DEXPICK: renderRegionPick(RPICK_FOR_DEX); return;
+    case SCR_GALLERY: renderGallery(); return;
+    case SCR_MOVEPICK: renderMovePick(); return;
+    case SCR_BOX:
       if (boxDetail) renderBoxDetail();
       else renderBox();
-    } else if (partyDetail) renderPartyDetail();
-    else renderParty();
-    return;
-  }
-  if (gameOpen) {
-    renderGame();
-    return;
-  }
-  if (sackOpen) {
-    renderSack();
-    return;
-  }
-  if (spdOpen) {
-    renderSpeed();
-    return;
-  }
-  if (trainOpen) {
-    renderTrain();
-    return;
-  }
-  if (kbOpen) {
-    renderKeyboard();
-    return;
-  }
-  if (clockOpen) {
-    renderClock();
-    return;
-  }
-  if (battleOpen) {
-    btlLinkPoll();
-    renderBattle();
-    return;
-  }
-  if (pickOpen) {
-    renderPick();
-    return;
-  }
-  if (lanOpen) {
-    renderLan();
-    return;
-  }
-  if (gymOpen) {
-    if (gymPick) renderRegionPick(RPICK_FOR_GYMS);
-    else renderGyms();
-    return;
-  }
-  if (playerOpen) {
-    renderPlayer();
-    return;
-  }
-  if (pet.hasLearnOffer()) {
-    renderLearn();
-    return;
-  }
-  if (cardOpen) {
-    renderCard();
-    return;
+      return;
+    case SCR_PARTY:
+      if (partyDetail) renderPartyDetail();
+      else renderParty();
+      return;
+    case SCR_GAME:
+      if (gameOpen) renderGame();
+      else if (sackOpen) renderSack();
+      else renderSpeed();
+      return;
+    case SCR_TRAIN: renderTrain(); return;
+    case SCR_KEYBOARD: renderKeyboard(); return;
+    case SCR_CLOCK: renderClock(); return;
+    case SCR_BATTLE:
+    case SCR_WIN:
+      btlLinkPoll();
+      renderBattle();
+      return;
+    case SCR_PICK: renderPick(); return;
+    case SCR_LAN: renderLan(); return;
+    case SCR_GYMPICK: renderRegionPick(RPICK_FOR_GYMS); return;
+    case SCR_GYM: renderGyms(); return;
+    case SCR_PLAYER: renderPlayer(); return;
+    case SCR_LEARN: renderLearn(); return;
+    case SCR_CARD: renderCard(); return;
+    default: break;   // SCR_MAIN, and SCR_MENU which is drawn over it
   }
   int h = sceneHour();
   gNight = pet.sleeping || h < 6 || h >= 20;
