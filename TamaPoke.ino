@@ -923,6 +923,7 @@ void ensureMon() {
   }
 }
 
+#define SAVE_MAX_DEFER_MS 600000UL   // 10 min: the longest a change waits unsaved
 void loop() {
   uint32_t now = millis();
   pet.update(now);
@@ -1015,12 +1016,24 @@ void loop() {
 
   updateBrightness(now);
 
-  // vuelca el autoguardado periodico SOLO con la pantalla atenuada/apagada o
-  // durmiendo: la escritura a NVS congela ~1s ambos cores (caché de flash off),
-  // y aqui no hay animacion que se corte ni dedo esperando respuesta. Con 90s
-  // de inactividad la pantalla ya atenua, asi que se vuelca enseguida; el uso
-  // activo persiste igual por los guardados de cada accion (comer/jugar/...).
-  if (pet.savePending() && (screenOff || dimStage >= 1 || pet.sleeping)) {
+  // The deferred save is flushed ONLY with the panel dimmed or off, or the
+  // creature asleep: an NVS write stalls both cores for up to ~1 s (the flash
+  // cache is off), and then there is no animation to cut and no finger waiting
+  // on a reply. 90 s without a touch already dims the panel, so it goes out
+  // soon after the player puts the device down.
+  //
+  // Care actions (feed, clean, play, the minigames' results, the light, waking
+  // the screen) are deferred to this too; what is irreversible or progress the
+  // player would mourn -- badges, evolving, hatching, the endings, release,
+  // retire, revive, the starter, rename, region, an import -- still writes on
+  // the spot. So that continuous play cannot hold an unsaved change forever,
+  // one that has waited SAVE_MAX_DEFER_MS is flushed anyway, between minigames.
+  static uint32_t pendingSince = 0;
+  if (!pet.savePending()) pendingSince = 0;
+  else if (!pendingSince) pendingSince = now ? now : 1;
+  bool overdue = pendingSince && now - pendingSince >= SAVE_MAX_DEFER_MS &&
+                 !(gameOpen || sackOpen || spdOpen);
+  if (pet.savePending() && (screenOff || dimStage >= 1 || pet.sleeping || overdue)) {
     pet.flushSave();
   }
 
@@ -1038,8 +1051,10 @@ void loop() {
     lastHealth = now;
     // pmu_err: PWR-button status reads that failed on I2C (see rtcbat.cpp).
     // Nonzero on a board is the confirmation that the bus really does glitch.
-    Serial.printf("HEALTH up=%lus heap=%u min=%u pmu_err=%u\n", (unsigned long)(now / 1000),
-                  ESP.getFreeHeap(), ESP.getMinFreeHeap(), (unsigned)pmuReadErrors());
+    Serial.printf("HEALTH up=%lus heap=%u min=%u pmu_err=%u saves=%lu last=%lums\n",
+                  (unsigned long)(now / 1000), ESP.getFreeHeap(), ESP.getMinFreeHeap(),
+                  (unsigned)pmuReadErrors(),
+                  (unsigned long)pet.saveCount, (unsigned long)pet.lastSaveMs);
   }
 
   // 85 ms en juego/saco: margen seguro para que el redibujado no pise el envio
@@ -1360,6 +1375,9 @@ void handleSerial() {
     Serial.printf("frames: asked=%lu pushed=%lu unchanged=%lu\n",
                   (unsigned long)gFlushCalls, (unsigned long)gFramePushes,
                   (unsigned long)gFrameSkips);
+    // Pet::save() writes ~52 NVS keys and stalls both cores while it does
+    Serial.printf("saves=%lu last=%lums pending=%d\n", (unsigned long)pet.saveCount,
+                  (unsigned long)pet.lastSaveMs, pet.savePending() ? 1 : 0);
     bootReportAgain();
     Serial.println("DONE");
   } else if (line == "STATS") {
@@ -4234,10 +4252,7 @@ static void btlSettleFaints() {
   btlWon = foeOut;     // both out at once stays the win it always was
   btlNewBadge = false;
   btlTrainGain = 0;
-  if (btlWon && btlTrainer >= 0 && !pet.hasBadge(btlRegion, btlTrainer, btlHard)) {
-    pet.winBadge(btlRegion, btlTrainer, btlHard);
-    btlNewBadge = true;
-  }
+  bool firstWin = btlWon && btlTrainer >= 0 && !pet.hasBadge(btlRegion, btlTrainer, btlHard);
   // A badge and nothing else made the ladder a one-way checklist. A win now
   // trains the creature that fought for it -- so a leader you can already
   // beat is worth returning to. It goes to the LIVE pet only: banked members
@@ -4250,6 +4265,15 @@ static void btlSettleFaints() {
     uint8_t amt = (btlHard ? 6 + random(5) : 3 + random(3)) + btlTrainer / 3;
     btlTrainGain = pet.rewardTraining(amt, btlTrainWhich);
   }
+  // The reward is only marked dirty, and the badge -- which writes on the
+  // spot -- comes AFTER it, so a first win is ONE save carrying both rather
+  // than two back to back. A rematch has no badge, so the flush writes the
+  // reward instead. Either way it is on flash before the win screen is up.
+  if (firstWin) {
+    pet.winBadge(btlRegion, btlTrainer, btlHard);
+    btlNewBadge = true;
+  }
+  if (btlWon && btlTrainer >= 0) pet.flushSave();
   audioMusic(btlWon ? MUS_VICTORY : MUS_NONE);
   if (btlWon) sfxPlay(SFX_VICTORY);
   // Tell the peer before anything else: if we stop here without sending, the

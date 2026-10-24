@@ -85,6 +85,28 @@ int main(){
   {
     Pet q; q.begin();
     ck(q.hasBadge(0, 0, false), "the badge just won SURVIVES a reboot");
+    // the win's training reward is deferred inside Pet and written by the
+    // badge's own save: it must be on flash just the same
+    ck(q.trAtk == pet.trAtk && q.trDef == pet.trDef && q.trSpe == pet.trSpe,
+       "and so does the training reward the win paid");
+  }
+  // a REMATCH: no badge to carry the reward, so the battle flushes it itself
+  {
+    uint8_t before = pet.trAtk + pet.trDef + pet.trSpe;
+    startTrainerBattle(0, false);
+    int g2 = 0;
+    while (battleOpen && g2++ < 300) {
+      if (btlWinUntil || btlMsgCount) { battleTap(233, 320); continue; }
+      int slot = -1;
+      for (int i = 0; i < MOVE_SLOTS; i++) if (btlYou.moves[i]) { slot = i; break; }
+      if (slot < 0) break;
+      if (btlMenu == 0) battleTap(233, BTL_CELL_Y(0) + 20);
+      battleTap(BTL_CELL_X(slot) + 40, BTL_CELL_Y(slot) + 20);
+    }
+    ck(btlWon && pet.trAtk + pet.trDef + pet.trSpe > before, "a rematch win pays training");
+    Pet q; q.begin();
+    ck(q.trAtk == pet.trAtk && q.trDef == pet.trDef && q.trSpe == pet.trSpe,
+       "and a rematch's reward survives a reboot too, with no badge to carry it");
   }
   pet.rename("AFTER");
   {

@@ -460,6 +460,11 @@ public:
   // autosave to notice. Defined out of line: save() is private and declared
   // further down.
   void saveNow();
+  // How many times save() really wrote, and how long the last one took. A save
+  // is ~52 NVS keys and stalls both cores while flash is written, so this is
+  // what HEALTH reports for the board to show whether the deferral is working.
+  uint32_t saveCount = 0;
+  uint32_t lastSaveMs = 0;
 
 private:
   // The NVS handle belongs to the Pet that OPENED it, never to a copy of it.
@@ -536,6 +541,10 @@ private:
   void defTick(bool resting);       // la calma forja la defensa (ver pet.cpp)
   void snapshotForParty();          // copy into endedMon before newEgg() wipes it
   void checkMedals();
+  bool beginFarewell();             // startFarewell() without the save
+  // Not worth a flash write on its own: the change rides on the next save, or
+  // on the deferred flush loop() does once the panel is dimmed, off or asleep.
+  void saveLater() { pendingSave = true; }
   void tick();
   void applyAutoSleep();
   void hatch();
