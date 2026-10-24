@@ -1931,14 +1931,14 @@ void onTap(int16_t x, int16_t y) {
     return;
   }
   if (confirmUntil) {        // dialogo "soltar?": SI / NO
-    if (millis() < confirmUntil && x >= 118 && x <= 218 && y >= 252 && y <= 304) {
+    if (timerActive(confirmUntil, millis()) && x >= 118 && x <= 218 && y >= 252 && y <= 304) {
       pet.release();
     }
     confirmUntil = 0;
     return;
   }
   if (feedMenuUntil) {       // selector de comida
-    if (millis() < feedMenuUntil && y >= 288 && y <= 352 && x >= 101 && x <= 365) {
+    if (timerActive(feedMenuUntil, millis()) && y >= 288 && y <= 352 && x >= 101 && x <= 365) {
       int item = (x - 101) / 66;
       if (item == 3) pet.feedCandy();
       else pet.feedBerry(item);
@@ -2338,7 +2338,7 @@ void render() {
 
   // selector de comida
   if (feedMenuUntil) {
-    if (millis() > feedMenuUntil) {
+    if (!timerActive(feedMenuUntil, millis())) {
       feedMenuUntil = 0;
     } else {
       gfx->fillRoundRect(101, 288, 264, 64, 14, UI_WHITE);
@@ -2352,7 +2352,7 @@ void render() {
 
   // dialogo "soltar?" (pulsacion larga sobre el bicho)
   if (confirmUntil) {
-    if (millis() > confirmUntil) {
+    if (!timerActive(confirmUntil, millis())) {
       confirmUntil = 0;
     } else {
       gfx->fillRoundRect(94, 168, 278, 152, 16, UI_WHITE);
@@ -2375,13 +2375,13 @@ void render() {
 
   // dialogo de decision (evolucionar/mantener, despedirse/quedaros)
   if (choiceKind) {
-    if (millis() > choiceUntil) choiceKind = 0;
+    if (!timerActive(choiceUntil, millis())) choiceKind = 0;
     else drawChoiceDialog();
   }
 
   // "<name> joined the party!" after a farewell or release
   if (partyBannerUntil) {
-    if (millis() > partyBannerUntil) {
+    if (!timerActive(partyBannerUntil, millis())) {
       partyBannerUntil = 0;
     } else {
       char b[40];
@@ -2489,7 +2489,7 @@ void stepGame() {
     ballY = CY + ny * 205;
   }
   // the clock, or three misses, whichever lands first
-  if (gameUntil && millis() >= gameUntil && !gameOverUntil) {
+  if (gameUntil && !timerActive(gameUntil, millis()) && !gameOverUntil) {
     gameNewHi = (gameScore > pet.gameHi);
     pet.playResult(gameScore);
     sfxPlay(gameNewHi && gameScore > 0 ? SFX_MEDAL : SFX_LEVEL);
@@ -2526,7 +2526,7 @@ void startSack() {
 }
 
 void sackTap() {
-  if (millis() >= sackUntil) return;  // ya termino el tiempo
+  if (!timerActive(sackUntil, millis())) return;  // ya termino el tiempo
   sackHits++;
   sackShake = 16;  // sacude el saco
 }
@@ -2541,7 +2541,7 @@ void renderSack() {
 
   // pantalla de resultado
   if (sackOverUntil) {
-    if (now > sackOverUntil) { sackOpen = false; return; }
+    if (!timerActive(sackOverUntil, now)) { sackOpen = false; return; }
     char b[20];
     snprintf(b, sizeof(b), T(S_HITS_FMT), sackHits);
     gfx->setTextColor(ink);
@@ -2571,7 +2571,7 @@ void renderSack() {
   }
 
   // se acabaron los 10 s: aplicar entrenamiento
-  if (now >= sackUntil) {
+  if (!timerActive(sackUntil, now)) {
     sackNewHi = (sackHits > pet.strHi);
     sackGain = pet.trainStrength(sackHits);
     sfxPlay(sackNewHi ? SFX_MEDAL : SFX_PLAY);
@@ -2641,7 +2641,7 @@ void renderGame() {
 
   if (gameOverUntil) {
     drawGameScene();
-    if (millis() > gameOverUntil) {
+    if (!timerActive(gameOverUntil, millis())) {
       gameOpen = false;
       return;
     }
@@ -2694,7 +2694,7 @@ void renderGame() {
   // read the same way. Thin and near the rim: the middle belongs to the ball.
   if (!gameOverUntil) {
     uint32_t now2 = millis();
-    uint32_t left = (gameUntil > now2) ? gameUntil - now2 : 0;
+    uint32_t left = timerActive(gameUntil, now2) ? gameUntil - now2 : 0;
     int bw = 200, fw = (int)((uint32_t)bw * left / GAME_MS);
     gfx->fillRoundRect(CX - bw / 2, 124, bw, 10, 4, UI_TRACK);
     if (fw > 2)
@@ -3719,23 +3719,23 @@ static void btlSide(int tx, int ty, int sx, int sy, const Combatant &c, uint8_t 
   uint32_t now = millis();
   int ox = 0, oy = 0;
   bool flash = false;
-  if (now < btlFaintUntil[who]) {          // sinks out of frame as it faints
+  if (timerActive(btlFaintUntil[who], now)) {          // sinks out of frame as it faints
     uint32_t left = btlFaintUntil[who] - now;
     oy += (int)((BTL_FAINT_MS - left) * 70 / BTL_FAINT_MS);
   } else if (c.fainted() && btlSwapWho == (int8_t)who) {
     return;                                // gone, waiting to be replaced
   }
-  if (now < btlEnterUntil[who]) {          // and the next one rises into place
+  if (timerActive(btlEnterUntil[who], now)) {          // and the next one rises into place
     uint32_t left = btlEnterUntil[who] - now;
     oy += (int)(left * 70 / BTL_ENTER_MS);
   }
-  if (now < btlLungeUntil[who]) {          // lean in, then back out
+  if (timerActive(btlLungeUntil[who], now)) {          // lean in, then back out
     uint32_t left = btlLungeUntil[who] - now;
     int amt = (int)(left > BTL_LUNGE_MS / 2 ? BTL_LUNGE_MS - left : left) * 22 / (BTL_LUNGE_MS / 2);
     ox = who == 0 ? amt : -amt;            // you lunge right, the foe lunges left
     oy = who == 0 ? -amt / 2 : amt / 2;
   }
-  if (now < btlHitUntil[who]) {
+  if (timerActive(btlHitUntil[who], now)) {
     uint32_t left = btlHitUntil[who] - now;
     ox += ((left / 50) % 2) ? 5 : -5;      // jitter
   }
@@ -3748,9 +3748,9 @@ static void btlSide(int tx, int ty, int sx, int sy, const Combatant &c, uint8_t 
     uint8_t act = PMD_IDLE;
     bool loop = true;
     uint32_t t = now;
-    if (now < btlHitUntil[who] && btlPmd[who].has(PMD_HURT)) {
+    if (timerActive(btlHitUntil[who], now) && btlPmd[who].has(PMD_HURT)) {
       act = PMD_HURT; loop = false; t = now - (btlHitUntil[who] - BTL_HIT_MS);
-    } else if (now < btlLungeUntil[who] && btlPmd[who].has(PMD_ATTACK)) {
+    } else if (timerActive(btlLungeUntil[who], now) && btlPmd[who].has(PMD_ATTACK)) {
       act = PMD_ATTACK; loop = false; t = now - (btlLungeUntil[who] - BTL_LUNGE_MS);
     }
     drawPmdActM(btlPmd[who], act, sx + 24 + ox, sy + 78 + oy, t, loop, false, 4);
@@ -3758,7 +3758,7 @@ static void btlSide(int tx, int ty, int sx, int sy, const Combatant &c, uint8_t 
   }
   const uint8_t *th = thumbs.get(c.dex);
   if (!th) return;
-  if (now < btlHitUntil[who]) flash = ((btlHitUntil[who] - now) / 60) % 2 == 0;
+  if (timerActive(btlHitUntil[who], now)) flash = ((btlHitUntil[who] - now) / 60) % 2 == 0;
   drawThumb(th, sx + ox, sy + oy, 3, flash);
 }
 
@@ -4334,7 +4334,7 @@ void renderSpeed() {
   uint16_t ink = night ? UI_INK_NIGHT : UI_INK;
 
   if (spdOverUntil) {
-    if (now > spdOverUntil) { spdOpen = false; return; }
+    if (!timerActive(spdOverUntil, now)) { spdOpen = false; return; }
     char b[24];
     snprintf(b, sizeof(b), T(S_SCORE_FMT), spdHits);
     gfx->setTextColor(ink);
@@ -4364,7 +4364,7 @@ void renderSpeed() {
   }
 
   // session over?
-  if (now >= spdUntil) {
+  if (!timerActive(spdUntil, now)) {
     spdNewHi = (spdHits > pet.spdHi);
     spdGain = pet.trainSpeed(spdHits);
     sfxPlay(spdNewHi ? SFX_MEDAL : SFX_PLAY);
@@ -4394,7 +4394,7 @@ void renderSpeed() {
   gfx->setCursor(CX - strlen(b) * 12, 30);
   gfx->print(b);
   // seconds left
-  uint32_t left = (spdUntil > now) ? (spdUntil - now + 999) / 1000 : 0;
+  uint32_t left = timerActive(spdUntil, now) ? (spdUntil - now + 999) / 1000 : 0;
   snprintf(b, sizeof(b), "%us", (unsigned)left);
   gfx->setTextSize(2);
   gfx->setCursor(CX - strlen(b) * 6, 76);
@@ -6016,7 +6016,7 @@ void startBath() {
 
 void drawBath() {
   uint32_t now = millis();
-  if (now > bathUntil) {
+  if (!timerActive(bathUntil, now)) {
     bathUntil = 0;
     if (bathPending) {
       bathPending = false;
@@ -6154,7 +6154,7 @@ void drawPetPMD() {
     act = PMD_HURT;
   } else {
     // contento: el planificador decide (idle / paseo / gesto)
-    if (now > beh.until) behNext();
+    if (!timerActive(beh.until, now)) behNext();
     if (beh.mode == 1) {
       float d = beh.targetX - beh.x;
       if (fabsf(d) < 4) {

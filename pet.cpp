@@ -152,8 +152,13 @@ void Pet::syncClock(uint32_t nowEpoch) {
 }
 
 void Pet::update(uint32_t nowMs) {
+  // Expired animation timers go back to 0, so they cannot read as active again
+  // 24.8 days later, when the signed difference in timerActive() turns over.
+  uint32_t *timers[] = { &eatUntil, &heartUntil, &evolveUntil, &medalUntil, &milestoneUntil };
+  for (uint32_t *t : timers)
+    if (*t && !timerActive(*t, millis())) *t = 0;
   // fin de ceremonia: la criatura se va y queda un huevo nuevo
-  if (ceremony != CER_NONE && millis() > ceremonyUntil) {
+  if (ceremony != CER_NONE && !timerActive(ceremonyUntil, millis())) {
     snapshotForParty();  // hand it over BEFORE newEgg() erases everything
     newEgg();
     return;
