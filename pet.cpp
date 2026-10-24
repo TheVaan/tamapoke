@@ -577,7 +577,9 @@ void Pet::registerCare() {
     milestoneUntil = millis() + 4500;
   }
   checkMedals();
-  save();
+  // Every caller is a care action that marks the pet dirty itself; writing
+  // here made the first care of the day two or three full saves in a row.
+  saveLater();
 }
 
 void Pet::addBond(uint8_t amt) {
@@ -603,7 +605,10 @@ void Pet::checkMedals() {
     newMedal = gained;
     medalUntil = millis() + 4000;
     if (!sleeping) sfxPlay(SFX_MEDAL);
-    save();
+    // Deferred: hatch() and evolve() save right after calling this anyway, and
+    // a medal lost to a power cut is re-awarded by the next check, since every
+    // medal is derived from state that is itself saved.
+    saveLater();
   }
 }
 
@@ -926,8 +931,10 @@ bool Pet::canRetireNow() const {
 void Pet::startRetire() {
   if (!canRetireNow()) return;
   retirePending = !canFarewellNow();
-  save();
-  startFarewell();
+  // ONE save, after lastEnd is final. This used to save before the ceremony,
+  // again inside startFarewell(), and a third time to correct lastEnd -- and
+  // the first was pure cost: retirePending is never loaded (load() clears it).
+  if (!beginFarewell()) return;
   // An early retire is NOT the good ending and must not pay like one.
   // startFarewell() sets lastEnd = CER_FAREWELL, which blesses the next egg --
   // rare 27% -> 45%, legendary 3% -> 10%, shiny 1/48 -> 1/24. Combined with the
@@ -936,20 +943,22 @@ void Pet::startRetire() {
   // Neutral instead, exactly like a release. The ceremony on screen is still the
   // farewell -- this was a choice the player made, not a neglected creature
   // walking out -- but the reward is not.
-  if (retirePending) {
-    lastEnd = CER_RELEASE;
-    save();
-  }
+  if (retirePending) lastEnd = CER_RELEASE;
+  save();
 }
 
 void Pet::startFarewell() {
-  if (isEgg() || ceremony != CER_NONE) return;
+  if (beginFarewell()) save();
+}
+
+bool Pet::beginFarewell() {
+  if (isEgg() || ceremony != CER_NONE) return false;
   lastEnd = CER_FAREWELL;
   ceremony = CER_FAREWELL;
   ceremonyUntil = millis() + CEREMONY_MS;
   heartUntil = ceremonyUntil;  // corazones durante toda la despedida
   sfxPlay(SFX_BYE);
-  save();
+  return true;
 }
 
 void Pet::startRunaway() {
@@ -1060,7 +1069,7 @@ void Pet::feedBerry(uint8_t color) {
   }
   eatUntil = millis() + EAT_ANIM_MS;
   registerCare();
-  save();
+  saveLater();   // care is not worth a ~1 s stall per tap; see loop()
 }
 
 void Pet::feedCandy() {
@@ -1071,7 +1080,7 @@ void Pet::feedCandy() {
   weight = clamp100(weight + 12);  // las chuches pasan factura
   eatUntil = millis() + EAT_ANIM_MS;
   registerCare();
-  save();
+  saveLater();   // care is not worth a ~1 s stall per tap; see loop()
 }
 
 uint8_t Pet::playResult(uint8_t score) {
@@ -1100,7 +1109,7 @@ uint8_t Pet::playResult(uint8_t score) {
   // ceiling.
   addBond((uint8_t)(2 + gain / 6));
   registerCare();
-  save();
+  saveLater();
   return gain;
 }
 
@@ -1139,7 +1148,8 @@ uint8_t Pet::rewardTraining(uint8_t amount, uint8_t &which) {
   }
   // The IV-bound ceiling is never crossed: a mediocre individual not reaching
   // as far is the whole point of trMaxFor().
-  save();
+  // Deferred: on a first win the badge's own save, right after, carries it.
+  saveLater();
   return amount;
 }
 
@@ -1163,7 +1173,7 @@ uint8_t Pet::trainSpeed(uint16_t hits) {
   // ceiling.
   addBond((uint8_t)(2 + gain / 6));
   registerCare();
-  save();
+  saveLater();
   return gain;
 }
 
@@ -1188,7 +1198,7 @@ uint8_t Pet::trainStrength(uint16_t hits) {
   // ceiling.
   addBond((uint8_t)(2 + gain / 6));
   registerCare();
-  save();
+  saveLater();
   return gain;
 }
 
@@ -1201,7 +1211,7 @@ void Pet::play() {
   heartUntil = millis() + HEART_MS;
   addBond(2);
   registerCare();
-  save();
+  saveLater();
 }
 
 // The hour off the RTC, the same source the scene uses. With no clock at all
@@ -1252,7 +1262,10 @@ void Pet::setScreenOff(bool off) {
     sleepAuto = SLEEP_NONE;
   }
   applyAutoSleep();
-  save();
+  // Deferred. Going dark, loop() flushes it on the same pass (screenOff is one
+  // of its flush conditions); coming back, this was a full save on the very
+  // touch that woke the panel, which is exactly when a stall is most visible.
+  saveLater();
 }
 
 void Pet::toggleLight() {
@@ -1263,7 +1276,7 @@ void Pet::toggleLight() {
   // not be undone a minute later by the auto-sleep, and neither must putting
   // it to bed early.
   sleepAuto = SLEEP_PLAYER;
-  save();
+  saveLater();   // asleep, loop() flushes it on the next pass anyway
 }
 
 void Pet::clean() {
@@ -1272,7 +1285,7 @@ void Pet::clean() {
   hygiene = 100;
   addBond(1);
   registerCare();
-  save();
+  saveLater();
 }
 
 void Pet::caress() {
@@ -1287,7 +1300,7 @@ void Pet::caress() {
 void Pet::eggTap() {
   if (!isEgg()) return;
   if (++eggTaps >= 3) hatch();
-  else save();
+  else saveLater();   // a crack is not progress worth a stall; the hatch saves
 }
 
 PetMood Pet::mood() const {
@@ -1303,6 +1316,7 @@ void Pet::save() {
   // NVS namespace with the real creature, so letting it write means it
   // OVERWRITES the player's pet. See the note on `opened` in pet.h.
   if (!prefs.opened) return;
+  uint32_t t0 = millis();
   ticksSinceSave = 0;
   pendingSave = false;
   prefs.putUChar("full", fullness);
@@ -1367,6 +1381,8 @@ void Pet::save() {
   prefs.putUShort("shi", strHi);
   prefs.putUShort("qhi", spdHi);
   prefs.putString("nick", nick);
+  saveCount++;
+  lastSaveMs = millis() - t0;
 }
 
 void Pet::load() {
