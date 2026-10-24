@@ -39,8 +39,17 @@ public:
       : _w(w), _h(h), _panel(p), fb(w * h, 0) {}
 
   bool begin(uint32_t = 0) { return true; }
-  void flush() { frameReady = true; }
+  // virtual, as it is in the real library (Arduino_GFX::flush): the sketch
+  // subclasses the canvas to decide whether a frame is worth pushing at all.
+  virtual void flush(bool = false) {
+    frameReady = true;
+    pushes++;
+    if (_panel) pushBrightness = _panel->brightness;   // was the panel lit for it?
+  }
+  uint32_t pushes = 0;           // frames that really went out to the panel
+  uint8_t pushBrightness = 255;  // the panel's brightness at the latest one
   const uint16_t *buffer() const { return fb.data(); }
+  uint16_t *getFramebuffer() { return fb.data(); }   // the real API's name
 
   inline void px(int x, int y, uint16_t c) {
     if (x < 0 || y < 0 || x >= _w || y >= _h) return;
