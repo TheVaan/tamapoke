@@ -50,6 +50,7 @@ void Pet::begin() {
   memset(badgesHardX, 0, sizeof(badgesHardX));
   memset(dexReg, 0, sizeof(dexReg));
   memset(dexShinyReg, 0, sizeof(dexShinyReg));
+  dexChanged();
   for (int i = 0; i < REGION_COUNT; i++) eggByRegion[i] = 0;
   if (!prefs.getBool("init", false)) {
     prefs.putBool("init", true);
@@ -546,6 +547,7 @@ void Pet::setRegion(uint8_t r) {
 void Pet::registerSpecies(int16_t dex) {
   if (dex < 1 || dex > DEX_COUNT) return;
   dexReg[(dex - 1) >> 3] |= (1 << ((dex - 1) & 7));
+  dexChanged();
   if (shiny) dexShinyReg[(dex - 1) >> 3] |= (1 << ((dex - 1) & 7));
 }
 
@@ -891,9 +893,11 @@ void Pet::rollIVs() {
 }
 
 uint16_t Pet::registeredCount() const {
+  if (regCountCache >= 0) return (uint16_t)regCountCache;
   uint16_t n = 0;
   for (int i = 1; i <= DEX_COUNT; i++)
     if (isRegistered(i)) n++;
+  regCountCache = (int16_t)n;
   return n;
 }
 
@@ -1445,6 +1449,7 @@ void Pet::load() {
   sleeping = prefs.getBool("sleep", false);
   lastEnd = prefs.getUChar("lend", CER_NONE);
   loadBlob(prefs, "dexreg", dexReg, sizeof(dexReg));
+  dexChanged();
   streak = prefs.getUShort("strk", 0);
   bestStreak = prefs.getUShort("bstrk", 0);
   lastCareDay = prefs.getUInt("cday", 0);
