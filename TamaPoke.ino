@@ -1122,9 +1122,43 @@ void legalMovesFor(int16_t dex, uint8_t lvl, uint8_t *out) {
   for (int i = 0; i < MOVE_SLOTS; i++) out[i] = tmp.moves[i];
 }
 
+// The console line being typed. Serial.readStringUntil('\n') used to wait out
+// its 1 s timeout for the rest of any partial line -- and most terminals send
+// each keystroke as it is typed -- so the whole loop (touch, animation, the
+// render cadence) froze for up to a second per keystroke. Bytes now gather
+// here as they arrive and a line runs when its '\n' does.
+//
+// Exactly the bytes up to and including the '\n' are taken, never one more:
+// PUT's binary payload follows its header line on the same stream and
+// sdSerialCommand() reads it with Serial.readBytes(). One line per call, as
+// before. A line that never gets a '\n' (a terminal set to send no line
+// ending) still runs once the sender has been quiet for SERIAL_IDLE_MS, which
+// is what the old timeout did for it.
+#define SERIAL_LINE_MAX 1024
+#define SERIAL_IDLE_MS 1000
+static char gRxBuf[SERIAL_LINE_MAX + 1];
+static size_t gRxN = 0;
+static bool gRxOverflow = false;   // the current line outgrew the buffer: drop it
+static uint32_t gRxLast = 0;
+
 void handleSerial() {
-  if (!Serial.available()) return;
-  String line = Serial.readStringUntil('\n');
+  bool complete = false;
+  int c;
+  while ((c = Serial.read()) >= 0) {
+    gRxLast = millis();
+    if (c == '\n') { complete = true; break; }
+    if (gRxN < SERIAL_LINE_MAX) gRxBuf[gRxN++] = (char)c;
+    else gRxOverflow = true;
+  }
+  if (!complete && (gRxN == 0 || millis() - gRxLast < SERIAL_IDLE_MS)) return;
+  gRxBuf[gRxN] = 0;
+  gRxN = 0;
+  if (gRxOverflow) {
+    gRxOverflow = false;
+    Serial.println("ERR line too long");
+    return;
+  }
+  String line(gRxBuf);
   line.trim();
   if (line.length() == 0) return;
   if (sdSerialCommand(line)) return;
