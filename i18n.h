@@ -143,6 +143,10 @@ enum StrId : uint8_t {
   S_SD_FAILED,      // result: the format did not work
   S_SD_FAILED_SUB,  // ...the game carries on without sprites
   S_PARTY_TAKES_FMT,  // party-full replace confirm: "%s takes its place"
+  // Why the live pet cannot join a fight: on its team-select cell, and on the
+  // FIGHT button when it is the only candidate.
+  S_FIGHT_TIRED,    // energy too low to pay for a battle
+  S_FIGHT_ASLEEP,   // asleep
   STR_COUNT
 };
 
