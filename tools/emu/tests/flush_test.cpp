@@ -30,6 +30,8 @@ extern Party party;
 extern uint8_t sdAsk;   // the unreadable-SD dialog: 1 ask, 2 formatting, 3 ok, 4 failed
 void startBattle(int16_t dex, uint8_t lvl);
 
+extern uint32_t gFlushCalls;
+
 static int bad = 0;
 static void clearAll(){
   cardOpen=galleryOpen=clockOpen=kbOpen=menuOpen=partyOpen=partyPick=false;
@@ -38,10 +40,19 @@ static void clearAll(){
   partyDetail=boxDetail=pickConfirm=0;
   sdAsk=0;
 }
+// Two questions, because the canvas no longer pushes every frame it is handed
+// (FrameCanvas drops a frame identical to the one on the panel -- frame_test).
+//   asked:  the render path called gfx->flush() at all. This is the frozen-panel
+//           bug itself, and it must not depend on what the frame contains.
+//   pushed: the frame really went out when the screen was FIRST shown. Every
+//           check below puts up a screen different from the one before it, so
+//           a screen that asks but never reaches the panel fails here.
 static void check(const char *name){
   gfx->frameReady = false;
+  uint32_t asked = gFlushCalls;
   render();
-  if (!gfx->frameReady) { printf("FAIL  %-12s never flushed -- the panel would freeze\n", name); bad++; }
+  if (gFlushCalls == asked) { printf("FAIL  %-12s never flushed -- the panel would freeze\n", name); bad++; }
+  else if (!gfx->frameReady) { printf("FAIL  %-12s flushed, but the first frame never reached the panel\n", name); bad++; }
   else printf("PASS  %-12s flushes\n", name);
 }
 

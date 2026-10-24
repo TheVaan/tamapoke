@@ -51,16 +51,72 @@ Arduino_CO5300 *panel = new Arduino_CO5300(
 // gPanelDark: brightness 0 (PWR pressed). Nothing pushed can be seen, so the
 // push is dropped and the next lit flush is forced, which is what makes the
 // frame fresh the instant the panel comes back on.
+//
+// An UNCHANGED frame is not pushed either. Most screens (party, box, cards,
+// gym list, chooser, clock, keyboard, learn, win, picker, LAN) are redrawn ten
+// times a second with nothing moving. Each row of the frame is hashed (FNV-1a
+// over its 233 words) and compared with the hash of that row as it was last
+// PUSHED. On a screen that is MOVING, the first row that differs ends the
+// scan, because the frame is going out anyway; rows past it are then unknown
+// (gRowValid), so the next frame cannot be declared unchanged until it has
+// hashed them -- a stale hash would otherwise vouch for a row the panel no
+// longer shows. On a screen that had SETTLED the scan always runs to the end,
+// so one change there costs one push, not two. An animated screen therefore
+// pays for the rows above its first moving one (the clouds, a sprite); a static
+// one reads the whole buffer once, a few ms against a 30-56 ms push. Any
+// single-word change is always caught: each FNV step is a bijection. As a
+// backstop against a missed change (a 32-bit collision) or a glitched panel, a
+// static screen is still pushed once every FRAME_REFRESH_SKIPS frames (~2 s).
 bool gPanelDark = false;
 bool gFramePushNext = true;     // the next flush pushes, whatever it holds
 uint32_t gFlushCalls = 0;       // every gfx->flush() a render path asked for
 uint32_t gFramePushes = 0;      // ... and the ones that really reached the panel
+uint32_t gFrameSkips = 0;       // ... and the ones dropped as unchanged
+#define FRAME_REFRESH_SKIPS 20
+static uint32_t gRowHash[LCD_HEIGHT];   // internal RAM, ~1.9 KB
+static uint16_t gRowValid = 0;          // rows [0, gRowValid) match the panel
+static uint8_t gSkipRun = 0;
+static bool gSettled = false;           // the last frame matched the one before it
 class FrameCanvas : public Arduino_Canvas {
 public:
   using Arduino_Canvas::Arduino_Canvas;
+  // true if the frame differs from the one on the panel (or may: an unknown
+  // row counts as different). Updates the row hashes as it goes. `full` scans
+  // to the end even after a difference: used when the screen had settled, so a
+  // single change on a static screen costs ONE push rather than two (the early
+  // exit would leave rows unknown and force the next, identical frame out too).
+  bool frameChanged(bool full) {
+    // read as words through a may_alias type: the buffer is written as uint16_t
+    typedef uint32_t __attribute__((__may_alias__)) word_t;
+    const word_t *p = (const word_t *)getFramebuffer();
+    if (!p) return true;
+    const int W32 = LCD_WIDTH * 2 / 4;          // 466 px = 233 words a row
+    uint16_t known = gRowValid;
+    bool diff = false;
+    for (int r = 0; r < LCD_HEIGHT; r++, p += W32) {
+      uint32_t h = 2166136261u;
+      for (int k = 0; k < W32; k++) h = (h ^ p[k]) * 16777619u;
+      if (r >= known || diff) { gRowHash[r] = h; continue; }   // record, keep going
+      if (h != gRowHash[r]) {
+        gRowHash[r] = h;
+        diff = true;
+        if (!full) { gRowValid = r + 1; return true; }   // the rest are now unknown
+      }
+    }
+    gRowValid = LCD_HEIGHT;
+    return diff || known < LCD_HEIGHT;         // unknown rows: it may have changed
+  }
   void flush(bool force_flush = false) override {
     gFlushCalls++;
     if (gPanelDark) { gFramePushNext = true; return; }
+    bool changed = frameChanged(gSettled);
+    gSettled = !changed;
+    if (!changed && !gFramePushNext && gSkipRun < FRAME_REFRESH_SKIPS) {
+      gSkipRun++;
+      gFrameSkips++;
+      return;
+    }
+    gSkipRun = 0;
     gFramePushNext = false;
     gFramePushes++;
     Arduino_Canvas::flush(force_flush);
@@ -1300,6 +1356,10 @@ void handleSerial() {
                   SCREEN_NAME[uiCurrentScreen() % SCR_COUNT],
                   btlPmd[0].loaded ? 1 : 0, btlPmd[1].loaded ? 1 : 0,
                   (unsigned)pmuReadErrors());
+    // what FrameCanvas did with the frames it was handed since boot
+    Serial.printf("frames: asked=%lu pushed=%lu unchanged=%lu\n",
+                  (unsigned long)gFlushCalls, (unsigned long)gFramePushes,
+                  (unsigned long)gFrameSkips);
     bootReportAgain();
     Serial.println("DONE");
   } else if (line == "STATS") {
