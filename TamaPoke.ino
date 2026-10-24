@@ -42,8 +42,32 @@ Arduino_DataBus *bus = new Arduino_ESP32QSPI(
   LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 Arduino_CO5300 *panel = new Arduino_CO5300(
   bus, LCD_RESET, 0 /*rotation*/, LCD_WIDTH, LCD_HEIGHT, 6, 0, 0, 0);
+// Every render path ends in gfx->flush(), and a flush pushes the whole ~434 KB
+// framebuffer over QSPI (~30-56 ms). This canvas is the one place all 29 of
+// those calls pass through, so the decision whether a push is worth making
+// lives HERE rather than as a flag in every render function -- a new screen
+// gets it for free and cannot forget it.
+//
+// gPanelDark: brightness 0 (PWR pressed). Nothing pushed can be seen, so the
+// push is dropped and the next lit flush is forced, which is what makes the
+// frame fresh the instant the panel comes back on.
+bool gPanelDark = false;
+bool gFramePushNext = true;     // the next flush pushes, whatever it holds
+uint32_t gFlushCalls = 0;       // every gfx->flush() a render path asked for
+uint32_t gFramePushes = 0;      // ... and the ones that really reached the panel
+class FrameCanvas : public Arduino_Canvas {
+public:
+  using Arduino_Canvas::Arduino_Canvas;
+  void flush(bool force_flush = false) override {
+    gFlushCalls++;
+    if (gPanelDark) { gFramePushNext = true; return; }
+    gFramePushNext = false;
+    gFramePushes++;
+    Arduino_Canvas::flush(force_flush);
+  }
+};
 // Framebuffer completo en PSRAM: dibujamos todo y hacemos flush() (sin parpadeo)
-Arduino_Canvas *gfx = new Arduino_Canvas(LCD_WIDTH, LCD_HEIGHT, panel);
+Arduino_Canvas *gfx = new FrameCanvas(LCD_WIDTH, LCD_HEIGHT, panel);
 
 TouchDrvCST92xx touch;
 Pet pet;
@@ -385,6 +409,7 @@ static void drawEggRegion();          // defined with the egg screen helpers
 static int eggRegionTap(int16_t x, int16_t y);
 static void drawBtlBack();
 static void btlLinkPoll();   // defined with the battle code, called from render()
+static void crumbDrop();     // loop() leaves the breadcrumb itself while the panel is off
 static void btlSwitchTo(uint8_t i);
 static void btlResolve(uint8_t yourMove);
 static void btlSettleFaints();       // who replaces a fainted creature, or the end
@@ -917,6 +942,21 @@ void loop() {
     }
   }
 
+  // The panel goes dark or comes back (PWR, or the touch that wakes it in
+  // handleTouch). While it is dark nothing is drawn or pushed -- see the render
+  // gate below -- so the panel's own memory still holds whatever it showed when
+  // it went off, possibly minutes old. Coming back, a fresh frame is drawn and
+  // FORCED out BEFORE updateBrightness() lights the panel, so the stale one is
+  // never the first thing seen.
+  if (screenOff != gPanelDark) {
+    gPanelDark = screenOff;
+    if (!screenOff) {
+      gFramePushNext = true;
+      lastRender = now;
+      render();
+    }
+  }
+
   updateBrightness(now);
 
   // vuelca el autoguardado periodico SOLO con la pantalla atenuada/apagada o
@@ -949,13 +989,28 @@ void loop() {
   // 85 ms en juego/saco: margen seguro para que el redibujado no pise el envio
   // DMA del frame anterior (a 40-65 ms solapaba y causaba flashes negros; con
   // sprites grandes el dibujo tarda mas, asi que se deja colchon)
+  //
+  // Nobody can see a dark panel, and at dimStage 2 (brightness 8, five minutes
+  // without a touch) nobody is looking: 2 fps there instead of 10. A touch drops
+  // dimStage straight back to 0, and lastRender is by then >= 100 ms old, so the
+  // first lit frame is drawn on the very next pass.
   // The first frame goes out on the first pass whatever the clock says, so the
   // panel updateBrightness() just lit is never showing setup()'s black frame.
   static bool firstFrame = true;
-  if (firstFrame || now - lastRender >= (uint32_t)((gameOpen || sackOpen || spdOpen) ? 85 : 100)) {
+  bool game = gameOpen || sackOpen || spdOpen;
+  uint32_t every = game ? 85 : (dimStage >= 2 ? 500 : 100);
+  if (firstFrame || now - lastRender >= every) {
     firstFrame = false;
     lastRender = now;
-    render();
+    // Screen off: draw nothing, push nothing -- but still leave the crash
+    // breadcrumb, which render() would have. The exception is a render path
+    // that IS game logic: the three minigames step and score inside their
+    // render functions, and drawBath() is what applies pet.clean() when the
+    // bath ends. Those keep running (FrameCanvas drops the push while dark), so
+    // turning the screen off mid-game changes nothing but what is visible. A
+    // link battle too, for as long as btlLinkPoll() is called from render().
+    if (screenOff && !game && !bathUntil && !(battleOpen && btlLink)) crumbDrop();
+    else render();
   }
 }
 
