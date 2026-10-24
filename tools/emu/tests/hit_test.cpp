@@ -16,6 +16,7 @@
 #include "party.h"
 #include "battle.h"
 #include <cstdio>
+#include <cstring>
 uint32_t g_seed=4; FakeSerial Serial; FakeESP ESP; FakeWire Wire;
 volatile int g_touchX=0,g_touchY=0; volatile bool g_touchDown=false;
 void FakeESP::restart(){exit(0);}
@@ -32,6 +33,10 @@ void startBattle(int16_t dex, uint8_t lvl);
 int btlCellIndexAt(int16_t x, int16_t y);
 int btlSwitchCellAt(int16_t x, int16_t y);
 void partyButtonRects(int *boxTop, int *boxBot, int *closeTop, int *closeBot);
+void gymLanRect(int *x, int *y, int *w, int *h);
+uint8_t uiCurrentScreen();
+extern const char *const SCREEN_NAME[];
+extern bool partyOpen, gymOpen, gymPick, lanOpen;
 void uiButtonHeights(int *out, int max, int *n);
 void gymHeaderRects(int *pillTop, int *pillBot, int *rowTop);
 int uiSleepButton(int *cx, int *cy);
@@ -170,6 +175,46 @@ int main(){
     ck(clBot < 466 && boxTop > 0, "both stay on the panel");
     printf("      BOX %d..%d, CLOSE %d..%d, gap %d px\n",
            boxTop, boxBot, clTop, clBot, clTop - boxBot);
+
+    // ...and the TAP answers those rectangles, not a copy of them. partyTap()
+    // once tested literal numbers 4 px above the drawing: the bottom of CLOSE
+    // was dead and the gap above it closed the screen. Both ends are driven
+    // through the router, so a drifted copy fails one or the other.
+    battleOpen = false;
+    partyOpen = true;
+    ck(!strcmp(SCREEN_NAME[uiCurrentScreen()], "party"), "the party screen is up");
+    onTap(233, (int16_t)(clBot - 1));
+    ck(!partyOpen, "a tap on the bottom edge of the drawn CLOSE closes the party");
+    partyOpen = true;
+    onTap(233, (int16_t)(clTop - 2));
+    ck(partyOpen, "a tap in the gap above CLOSE does not");
+    partyOpen = false;
+  }
+
+  // The gym list's LAN button: 32 px tall once, and literal numbers in both the
+  // draw and the tap. One set of constants now, held to UI_TAP_MIN by the
+  // height sweep below and to the round panel here.
+  {
+    int lx, ly, lw, lh;
+    gymLanRect(&lx, &ly, &lw, &lh);
+    printf("      gym LAN button %d,%d %dx%d\n", lx, ly, lw, lh);
+    int worst = 0;
+    const int cx[2] = { lx, lx + lw }, cy[2] = { ly, ly + lh };
+    for (int a = 0; a < 2; a++) for (int b = 0; b < 2; b++) {
+      int dx = cx[a] - 233, dy = cy[b] - 233, r2 = dx * dx + dy * dy;
+      if (r2 > worst) worst = r2;
+    }
+    ck(worst < 231 * 231, "the gym LAN button's corners are on the round panel");
+    battleOpen = false; partyOpen = false; lanOpen = false;
+    gymOpen = true; gymPick = false;
+    ck(!strcmp(SCREEN_NAME[uiCurrentScreen()], "gym"), "the gym list is up");
+    onTap(233, (int16_t)(ly + lh - 1));
+    ck(lanOpen && !gymOpen, "a tap low on the gym LAN button opens the LAN screen");
+    lanOpen = false;
+    gymOpen = true; gymPick = false;
+    onTap(233, (int16_t)(ly + 1));
+    ck(lanOpen, "and so does one high on it");
+    lanOpen = false; gymOpen = false;
   }
 
   // Three separate "hard to hit" reports came in from the board, all the same
