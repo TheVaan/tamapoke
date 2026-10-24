@@ -3860,6 +3860,71 @@ static void drawBattleBack() {
   drawBack(BACKS[bi][night ? 1 : 0], 30);
 }
 
+// The same scene, scaled ONCE into PSRAM and copied in each frame. drawBack()
+// re-expands every run of every row ten times a second -- thousands of
+// fillRect calls for a picture that only changes when the foe's biome does
+// (a trainer's next creature may live elsewhere) or the day/night half turns.
+// 466 x 224 RGB565 is ~204 KB, held only while a fight is on: btlFreeSprites()
+// frees it with the two battle sprites. PSRAM during a fight is then the
+// ~434 KB framebuffer + two ~135 KB battle sprites + the pet's own sprite +
+// thumbs.bin + this, a little over 1.5 MB of the ~3.8 MB the board reports.
+//
+// The pixels are drawBack()'s exactly: same runs, same 2x, the same columns
+// cropped at the canvas edge, and the 30 black rows above the scene that
+// renderBattle()'s fillScreen() used to leave. Returns false -- and the caller
+// draws it the old way -- for no foe, a scene that would not cover the full
+// width, or no PSRAM to spare.
+#define BTLBG_Y 30
+#define BTLBG_ROWS 224              // 112 scene rows at 2x
+uint16_t *btlBgBuf = nullptr;       // not static: btlbg_test checks its pixels
+int16_t btlBgKey = -1;              // which BACKS entry it holds: biome * 2 + night
+static void btlBgFree() {
+  if (btlBgBuf) free(btlBgBuf);
+  btlBgBuf = nullptr;
+  btlBgKey = -1;
+}
+static bool drawBattleBackCached() {
+  int16_t dex = btlFoe.dex;
+  if (dex < 1 || dex > DEX_COUNT) return false;
+  uint8_t bi = DEX_TBL[dex].biome;
+  if (bi >= BACK_BIOMES) bi = 0;
+  bool night = sceneHour() < 6 || sceneHour() >= 20;
+  const BackScene &b = BACKS[bi][night ? 1 : 0];
+  const int SC = 2;
+  int x0 = CX - (b.w * SC) / 2;
+  if (b.h * SC != BTLBG_ROWS || x0 > 0 || x0 + b.w * SC < LCD_WIDTH) return false;
+  if (!btlBgBuf) {
+    btlBgBuf = (uint16_t *)ps_malloc((size_t)LCD_WIDTH * BTLBG_ROWS * 2);
+    btlBgKey = -1;
+    if (!btlBgBuf) return false;
+  }
+  int16_t key = bi * 2 + (night ? 1 : 0);
+  if (key != btlBgKey) {
+    for (int r = 0; r < b.h; r++) {
+      const uint8_t *row = b.idx + (uint32_t)r * b.w;
+      uint16_t *d0 = btlBgBuf + (size_t)(r * SC) * LCD_WIDTH;
+      int c = 0;
+      while (c < b.w) {
+        uint8_t v = row[c];
+        int run = 1;
+        while (c + run < b.w && row[c + run] == v) run++;
+        uint16_t col = b.pal[v];
+        int xa = x0 + c * SC, xb = xa + run * SC;
+        if (xa < 0) xa = 0;
+        if (xb > LCD_WIDTH) xb = LCD_WIDTH;
+        for (int x = xa; x < xb; x++) d0[x] = col;
+        c += run;
+      }
+      for (int k = 1; k < SC; k++)
+        memcpy(d0 + (size_t)k * LCD_WIDTH, d0, LCD_WIDTH * 2);
+    }
+    btlBgKey = key;
+  }
+  gfx->fillRect(0, 0, LCD_WIDTH, BTLBG_Y, RGB565_BLACK);
+  gfx->draw16bitRGBBitmap(0, BTLBG_Y, btlBgBuf, LCD_WIDTH, BTLBG_ROWS);
+  return true;
+}
+
 // Streams a side's sprite if it is not already the one loaded. Called whenever
 // a creature steps in, never per frame.
 static void btlSyncSprite(uint8_t who, const Combatant &c) {
@@ -3873,6 +3938,7 @@ static void btlSyncSprite(uint8_t who, const Combatant &c) {
 
 static void btlFreeSprites() {
   for (int i = 0; i < 2; i++) { btlPmd[i].unload(); btlPmdDex[i] = 0; }
+  btlBgFree();   // the pre-scaled backdrop goes with them
 }
 
 static void btlSay(const char *fmt, ...) {
@@ -4535,8 +4601,13 @@ void renderWin() {
 void renderBattle() {
   if (btlWinUntil) { renderWin(); return; }
   btlEaseBars();
-  gfx->fillScreen(RGB565_BLACK);
-  drawBattleBack();
+  // Everything below the scene is covered by the band right after, so the
+  // cached path only paints the 30 black rows above it rather than the whole
+  // screen first.
+  if (!drawBattleBackCached()) {
+    gfx->fillScreen(RGB565_BLACK);
+    drawBattleBack();
+  }
   // the lower band stays flat so the move grid and the HP text keep their
   // contrast against it
   gfx->fillRect(0, 254, 466, 212, UI_BG_DAY);

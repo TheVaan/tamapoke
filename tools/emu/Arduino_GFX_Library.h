@@ -64,6 +64,11 @@ public:
     for (int j = 0; j < h; j++)
       for (int i = 0; i < w; i++) px(x + i, y + j, c);
   }
+  // the real canvas copies rows straight into its framebuffer, clipped
+  void draw16bitRGBBitmap(int x, int y, uint16_t *bmp, int w, int h) {
+    for (int j = 0; j < h; j++)
+      for (int i = 0; i < w; i++) px(x + i, y + j, bmp[(size_t)j * w + i]);
+  }
   void drawFastHLine(int x, int y, int w, uint16_t c) { fillRect(x, y, w, 1, c); }
   void drawFastVLine(int x, int y, int h, uint16_t c) { fillRect(x, y, 1, h, c); }
   void drawRect(int x, int y, int w, int h, uint16_t c) {
