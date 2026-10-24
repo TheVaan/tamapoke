@@ -142,6 +142,7 @@ enum StrId : uint8_t {
   S_SD_READY_SUB,   // ...it is empty, so the sprite packs go on next
   S_SD_FAILED,      // result: the format did not work
   S_SD_FAILED_SUB,  // ...the game carries on without sprites
+  S_PARTY_TAKES_FMT,  // party-full replace confirm: "%s takes its place"
   STR_COUNT
 };
 

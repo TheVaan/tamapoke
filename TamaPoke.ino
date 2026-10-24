@@ -140,6 +140,12 @@ uint8_t boxDetail = 0;        // box slot + 1 whose sheet is open
 // because only one sheet can be open at a time and partyDetail/boxDetail
 // already say which.
 bool releaseConfirm = false;
+// The confirm while a newcomer waits for a slot (partyPick). Both ways out of
+// that state lose a creature for good -- letting the newcomer go, or writing it
+// over a banked one -- and both used to happen on a single tap or swipe.
+#define PICKCONF_NONE 0
+#define PICKCONF_LETGO 0xFF   // anything else: the party slot + 1 it would replace
+uint8_t pickConfirm = PICKCONF_NONE;
 #define BOX_PER_PAGE 6
 uint32_t partyBannerUntil = 0;   // "<name> joined the party!"
 char partyBannerName[14] = "";
@@ -156,6 +162,13 @@ uint32_t bathUntil = 0;
 bool bathPending = false;
 struct { int16_t x, y; uint8_t r, ph; } bubbles[14];
 uint32_t feedMenuUntil = 0;   // selector de comida abierto hasta este millis
+// The feed picker's panel: four 66 px cells, red / blue / green berry, candy.
+#define FEED_X 101
+#define FEED_Y 288
+#define FEED_W 264
+#define FEED_H 64
+#define FEED_CELL 66
+#define FEED_ITEMS 4
 
 // minijuego "toques": mantener la pokeball en el aire
 bool gameOpen = false;
@@ -259,6 +272,7 @@ uint8_t uiCurrentScreen();
 void uiConfirmRects(int *b1Top, int *b1Bot, int *b2Top, int *b2Bot);
 void renderParty();
 void renderBox();
+void partyReset(bool closeParty);
 void drawConfirmPanel(const char *q, const char *sub1, const char *sub2,
                       uint16_t subCol, const char *o1, uint16_t c1, uint16_t t1,
                       const char *o2, uint16_t c2, uint16_t t2);
@@ -374,6 +388,15 @@ uint8_t btlMyAct = 0;        // host: our own action, latched until theirs lands
 #define LANBTN_H UI_TAP_MIN
 #define LANBTN_X (233 - LANBTN_W / 2)
 #define LANBTN_Y 336
+
+// The LAN battle button at the foot of a region's gym LIST (the chooser above has
+// its own). It was literal numbers in two places and 32 px tall. 376..420 clears
+// the page dots (366 +- 5) and the last leader row (ends at 354); at y=420 the
+// panel is still 278 px wide, and its corners sit at radius ~205 of 231.
+#define GYMLAN_W 170
+#define GYMLAN_H UI_TAP_MIN
+#define GYMLAN_X (233 - GYMLAN_W / 2)
+#define GYMLAN_Y 376
 
 #define BOXBTN_X 146
 #define BOXBTN_Y 320
@@ -838,6 +861,9 @@ void loop() {
       pet.endedKind = CER_NONE;
       sfxPlay(SFX_MEDAL);
     } else {
+      // From a clean grid: a sheet, the box or an armed swap left over from
+      // earlier would otherwise sit on top of the choice, or answer it.
+      partyReset(false);
       partyPick = true;
       partyOpen = true;
       menuOpen = false;
@@ -919,6 +945,18 @@ void updateBrightness(uint32_t now) {
 }
 
 // ---------- consola serie (provision de SD + depuracion) ----------
+
+// The moveset a creature of this species and level would have, chosen by the
+// SAME Pet::relearnFromLevel() every hatched pet and every gym opponent uses --
+// so the console cannot bank a set the player could not have. A scratch Pet is
+// safe here: it is never begin()'d, so its save() is a no-op (foesave_test).
+void legalMovesFor(int16_t dex, uint8_t lvl, uint8_t *out) {
+  Pet tmp;
+  tmp.dbgHatchAs(dex, false);
+  tmp.ageMinutes = (uint32_t)(lvl ? lvl - 1 : 0) * MINUTES_PER_LEVEL;
+  tmp.relearnFromLevel();
+  for (int i = 0; i < MOVE_SLOTS; i++) out[i] = tmp.moves[i];
+}
 
 void handleSerial() {
   if (!Serial.available()) return;
@@ -1140,6 +1178,8 @@ void handleSerial() {
         m.level = 50;
         m.ivAtk = m.ivDef = m.ivSpe = m.ivHp = 20;
         m.trAtk = m.trDef = m.trSpe = 50;
+        // Without a moveset it could only switch or run once in a fight.
+        legalMovesFor(m.dex, (uint8_t)m.level, m.moves);
         Serial.println(party.add(m) ? "added" : "party full");
       }
     }
@@ -1259,6 +1299,54 @@ void handleTouch() {
   wasPressed = pressed;
 }
 
+// Closes whichever detail sheet is up, and its RELEASE confirm WITH it. Closing
+// the sheet by a swipe used to clear partyDetail and leave releaseConfirm set,
+// so the NEXT sheet opened came up already asking "Release <someone else>?" --
+// with YES sitting where that creature's move rows are.
+void monSheetClose() {
+  partyDetail = 0;
+  boxDetail = 0;
+  releaseConfirm = false;
+}
+
+// EVERY way out of the party or the box comes through here: a swipe on either
+// axis, BACK, CLOSE, the top band, BRING BACK, a completed or declined newcomer.
+// Each exit used to clear its own subset of the selection state, and the gaps
+// were bugs: a stale boxSel hijacked the next party-slot tap (even ahead of a
+// waiting newcomer), a stale boxDetail reopened a sheet nobody asked for. One
+// function, so a new exit -- or a new piece of state -- cannot be half-handled.
+//
+// closeParty=false is "back from the box to the party grid"; true leaves the
+// party altogether. partyPick is deliberately NOT cleared: a newcomer waiting
+// for a slot is only ever resolved by placing it or by a confirmed let-go.
+void partyReset(bool closeParty) {
+  monSheetClose();
+  boxOpen = false;
+  boxSwapFrom = 0;
+  boxSel = 0;
+  pickConfirm = PICKCONF_NONE;
+  if (closeParty) partyOpen = false;
+}
+
+// A swipe on the party screen while a newcomer is waiting does NOT let it go: it
+// asks. Leaving that screen loses the creature for good, so it goes through the
+// same confirm as the LET GO button. While a confirm is up a swipe does nothing.
+void partySwipeOut() {
+  if (partyDetail) { monSheetClose(); return; }
+  if (partyPick) {
+    if (pickConfirm == PICKCONF_NONE) { pickConfirm = PICKCONF_LETGO; sfxPlay(SFX_TAP); }
+    return;
+  }
+  partyReset(true);
+}
+
+// The box's swipe out: a sheet closes first (with its confirm), otherwise the
+// box backs out to the party grid.
+void boxSwipeOut() {
+  if (boxDetail) { monSheetClose(); return; }
+  partyReset(false);
+}
+
 // deslizar vertical: abre/cierra la ficha del bicho
 
 void openClock();  // prototipo
@@ -1284,12 +1372,8 @@ void onSwipeV(int dir) {
     case SCR_PLAYER: playerOpen = false; return;
     case SCR_TRAIN: trainOpen = false; return;
     case SCR_MOVEPICK: movePickOpen = false; return;
-    case SCR_BOX: boxOpen = false; boxSel = 0; return;   // vertical backs out
-    case SCR_PARTY:
-      if (partyDetail) { partyDetail = 0; return; }
-      if (partyPick) { partyPick = false; pet.endedKind = CER_NONE; }
-      partyOpen = false;
-      return;
+    case SCR_BOX: boxSwipeOut(); return;   // vertical backs out
+    case SCR_PARTY: partySwipeOut(); return;
     case SCR_GAME:
       // Either minigame exits on a swipe. A swipe cannot be confused with a ball
       // hit -- the gesture resolver separates them -- which the header tap no
@@ -1431,8 +1515,7 @@ void renderPartyDetail() {
   // leaves the previous frame frozen on the panel -- the exact failure
   // flush_test exists to catch, and invisible to any screenshot.
   if (party.slots[partyDetail - 1].empty()) {
-    partyDetail = 0;
-    releaseConfirm = false;
+    monSheetClose();
     renderParty();
     return;
   }
@@ -1441,8 +1524,7 @@ void renderPartyDetail() {
 
 void renderBoxDetail() {
   if (party.box[boxDetail - 1].empty()) {
-    boxDetail = 0;
-    releaseConfirm = false;
+    monSheetClose();
     renderBox();
     return;
   }
@@ -1454,7 +1536,7 @@ void renderBoxDetail() {
 // Every primary button's height, so a test can hold them all to UI_TAP_MIN
 // instead of waiting for somebody to report the next one by hand.
 void uiButtonHeights(int *out, int max, int *n) {
-  const int h[] = { BOXBTN_H, PARTYCLOSE_H, LANBTN_H, BTL_CELL_H + BTL_HIT_PAD * 2 };
+  const int h[] = { BOXBTN_H, PARTYCLOSE_H, LANBTN_H, BTL_CELL_H + BTL_HIT_PAD * 2, GYMLAN_H };
   int c = (int)(sizeof(h) / sizeof(h[0]));
   if (c > max) c = max;
   for (int i = 0; i < c; i++) out[i] = h[i];
@@ -1491,6 +1573,13 @@ void gymHeaderRects(int *pillTop, int *pillBot, int *rowTop) {
   if (rowTop) *rowTop = GYM_ROW_Y(0);
 }
 
+void gymLanRect(int *x, int *y, int *w, int *h) {
+  if (x) *x = GYMLAN_X;
+  if (y) *y = GYMLAN_Y;
+  if (w) *w = GYMLAN_W;
+  if (h) *h = GYMLAN_H;
+}
+
 void partyButtonRects(int *boxTop, int *boxBot, int *closeTop, int *closeBot) {
   if (boxTop) *boxTop = BOXBTN_Y - BOXBTN_PAD;
   if (boxBot) *boxBot = BOXBTN_Y + BOXBTN_H + BOXBTN_PAD;
@@ -1518,18 +1607,66 @@ bool monSheetConfirmTap(int16_t x, int16_t y, bool fromBox) {
   uiConfirmRects(&c1t, &c1b, &c2t, &c2b);
   if (x < CONFIRM_BTN_X || x > CONFIRM_BTN_X + CONFIRM_BTN_W) return false;
   if (y >= c1t && y <= c1b) {            // YES -- and it does not come back
-    if (fromBox) { party.boxReleaseAt(boxDetail - 1); boxDetail = 0; }
-    else { party.releaseAt(partyDetail - 1); partyDetail = 0; }
+    if (fromBox) party.boxReleaseAt(boxDetail - 1);
+    else party.releaseAt(partyDetail - 1);
+    monSheetClose();
     // A half-finished swap named a slot that may now be empty, so disarm both
     // sides rather than leaving one pointing at a creature that is gone.
     boxSwapFrom = 0;
     boxSel = 0;
-    releaseConfirm = false;
     sfxPlay(SFX_BYE);
     return true;
   }
   if (y >= c2t && y <= c2b) {            // NO
     releaseConfirm = false;
+    sfxPlay(SFX_TAP);
+    return true;
+  }
+  return false;
+}
+
+// The party screen's CLOSE / LET GO button, off the same PARTYCLOSE_* constants
+// renderParty() draws it with. The tap used to test literal numbers 4 px above
+// the drawing (372..416 against 376..420), so the bottom of the button was dead
+// and the gap above it was live.
+bool partyCloseHit(int16_t x, int16_t y) {
+  return y >= PARTYCLOSE_Y && y <= PARTYCLOSE_Y + PARTYCLOSE_H &&
+         x >= PARTYCLOSE_X && x <= PARTYCLOSE_X + PARTYCLOSE_W;
+}
+
+// The waiting newcomer takes party slot i, and whoever was there is gone.
+void partyPlaceNewcomer(int i) {
+  party.replaceAt(i, pet.endedMon);
+  snprintf(partyBannerName, sizeof(partyBannerName), "%s",
+           pet.endedMon.nick[0] ? pet.endedMon.nick : DEX_TBL[pet.endedMon.dex].name);
+  partyBannerUntil = millis() + 3500;
+  pet.endedKind = CER_NONE;
+  partyPick = false;
+  partyReset(true);
+  sfxPlay(SFX_MEDAL);
+}
+
+// YES / NO while a newcomer waits: either "let the newcomer go" or "replace
+// this banked creature with it". Modal exactly like the sheet's confirm --
+// returns false on a miss and the caller swallows the tap, so fumbling at the
+// dialog can never reach the slot drawn underneath it.
+bool partyPickConfirmTap(int16_t x, int16_t y) {
+  int c1t, c1b, c2t, c2b;
+  uiConfirmRects(&c1t, &c1b, &c2t, &c2b);
+  if (x < CONFIRM_BTN_X || x > CONFIRM_BTN_X + CONFIRM_BTN_W) return false;
+  if (y >= c1t && y <= c1b) {            // YES
+    if (pickConfirm == PICKCONF_LETGO) {
+      partyPick = false;
+      pet.endedKind = CER_NONE;
+      partyReset(true);
+      sfxPlay(SFX_BYE);
+    } else {
+      partyPlaceNewcomer(pickConfirm - 1);
+    }
+    return true;
+  }
+  if (y >= c2t && y <= c2b) {            // NO: back to choosing
+    pickConfirm = PICKCONF_NONE;
     sfxPlay(SFX_TAP);
     return true;
   }
@@ -1551,9 +1688,7 @@ void partyTap(int16_t x, int16_t y) {
       if (!pet.isEgg() || pet.awaitingStarter()) { sfxPlay(SFX_DENY); return; }
       pet.reviveFrom(party.slots[partyDetail - 1]);
       party.releaseAt(partyDetail - 1);      // it is alive now, not banked
-      partyDetail = 0;
-      boxSwapFrom = 0;
-      partyOpen = false;
+      partyReset(true);
       sfxPlay(SFX_HATCH);
       return;
     }
@@ -1572,11 +1707,12 @@ void partyTap(int16_t x, int16_t y) {
       sfxPlay(SFX_TAP);
       return;
     }
-    partyDetail = 0;
-    releaseConfirm = false;
+    monSheetClose();
     sfxPlay(SFX_TAP);
     return;
   }
+  // The newcomer's confirm is modal: a miss does nothing at all.
+  if (partyPick && pickConfirm != PICKCONF_NONE) { partyPickConfirmTap(x, y); return; }
   if (!partyPick && y >= BOXBTN_Y - BOXBTN_PAD && y <= BOXBTN_Y + BOXBTN_H + BOXBTN_PAD &&
       x >= BOXBTN_X - BOXBTN_PAD && x <= BOXBTN_X + BOXBTN_W + BOXBTN_PAD) {
     boxOpen = true;                  // open the box, nothing picked yet
@@ -1585,13 +1721,11 @@ void partyTap(int16_t x, int16_t y) {
     sfxPlay(SFX_TAP);
     return;
   }
-  // exit button, and the top band, both always work
-  if ((y >= 372 && y <= 416 && x >= 133 && x <= 333) || y < 34) {
-    if (partyPick) {                 // declined the swap: the pet is let go
-      partyPick = false;
-      pet.endedKind = CER_NONE;
-    }
-    partyOpen = false;
+  // exit button, and the top band, both always work -- but with a newcomer
+  // waiting, leaving lets it go for good, so that is asked first
+  if (partyCloseHit(x, y) || y < 34) {
+    if (partyPick) pickConfirm = PICKCONF_LETGO;
+    else partyReset(true);
     sfxPlay(SFX_TAP);
     return;
   }
@@ -1599,33 +1733,32 @@ void partyTap(int16_t x, int16_t y) {
     int cx0 = PARTY_GRID_X + (i % 2) * (PARTY_CELL_W + 10);
     int cy0 = PARTY_GRID_Y + (i / 2) * (PARTY_CELL_H + 8);
     if (x < cx0 || x > cx0 + PARTY_CELL_W || y < cy0 || y > cy0 + PARTY_CELL_H) continue;
+    // A waiting newcomer is checked BEFORE boxSel: a box swap armed earlier must
+    // never answer the newcomer's choice. An occupied slot asks first, since the
+    // creature in it is gone for good; an empty one (none, normally -- the pick
+    // only starts when party and box are both full) loses nothing.
+    if (partyPick) {
+      if (party.slots[i].empty()) { partyPlaceNewcomer(i); return; }
+      pickConfirm = (uint8_t)(i + 1);
+      sfxPlay(SFX_TAP);
+      return;
+    }
     if (boxSel) {                    // a box creature is waiting for a slot
       party.swapPartyBox(i, boxSel - 1);
       boxSel = 0;
       sfxPlay(SFX_MEDAL);
       return;
     }
-    if (!partyPick) {
-      if (boxSwapFrom == i + 1) {    // tapped again: take it to the box
-        boxOpen = true;
-        boxPage = 0;
-        sfxPlay(SFX_TAP);
-        return;
-      }
-      if (party.slots[i].empty()) { boxSwapFrom = i + 1; sfxPlay(SFX_TAP); return; }
-      partyDetail = i + 1;
-      boxSwapFrom = i + 1;           // armed, in case the box is opened next
+    if (boxSwapFrom == i + 1) {      // tapped again: take it to the box
+      boxOpen = true;
+      boxPage = 0;
       sfxPlay(SFX_TAP);
       return;
     }
-    party.replaceAt(i, pet.endedMon);
-    snprintf(partyBannerName, sizeof(partyBannerName), "%s",
-             pet.endedMon.nick[0] ? pet.endedMon.nick : DEX_TBL[pet.endedMon.dex].name);
-    partyBannerUntil = millis() + 3500;
-    pet.endedKind = CER_NONE;
-    partyPick = false;
-    partyOpen = false;
-    sfxPlay(SFX_MEDAL);
+    if (party.slots[i].empty()) { boxSwapFrom = i + 1; sfxPlay(SFX_TAP); return; }
+    partyDetail = i + 1;
+    boxSwapFrom = i + 1;             // armed, in case the box is opened next
+    sfxPlay(SFX_TAP);
     return;
   }
 }
@@ -1683,17 +1816,15 @@ void onSwipe(int dir) {
       return;
     }
     case SCR_BOX: {   // horizontal pages the box, as every other paged screen
+      // ...but not underneath an open sheet: that closes the sheet, as on the party
+      if (boxDetail) { monSheetClose(); return; }
       uint8_t pages = BOX_SLOTS / BOX_PER_PAGE;
       int p = (int)boxPage + (dir > 0 ? -1 : 1);
-      if (p < 0 || p >= pages) { boxOpen = false; boxSel = 0; }
+      if (p < 0 || p >= pages) boxSwipeOut();
       else boxPage = (uint8_t)p;
       return;
     }
-    case SCR_PARTY:
-      if (partyDetail) { partyDetail = 0; return; }
-      if (partyPick) { partyPick = false; pet.endedKind = CER_NONE; }
-      partyOpen = false;
-      return;
+    case SCR_PARTY: partySwipeOut(); return;
     case SCR_GAME:   // swipe out, keeping what you earned
       if (gameOpen) leaveGame();
       else if (spdOpen) leaveSpeed();
@@ -1736,6 +1867,17 @@ void onSwipe(int dir) {
     if (dir < 0) { gymOpen = true; gymPick = true; gymPage = 0; rpickPage = 0; }
     else partyOpen = true;
   }
+}
+
+// Which feed-picker item a tap is on, or -1. The panel is 264 px wide (an
+// inclusive 101..365) and four cells of 66 are exactly 264, so the right edge
+// itself divided out to item 4 -- which does not exist, and fell through to
+// feedBerry(4): a "berry" no species ever loves, so a plain +25 fullness from a
+// tap on the candy's border. The last pixel belongs to the last cell.
+int feedItemAt(int16_t x, int16_t y) {
+  if (y < FEED_Y || y > FEED_Y + FEED_H || x < FEED_X || x > FEED_X + FEED_W) return -1;
+  int item = (x - FEED_X) / FEED_CELL;
+  return item < FEED_ITEMS ? item : FEED_ITEMS - 1;
 }
 
 void onTap(int16_t x, int16_t y) {
@@ -1817,7 +1959,8 @@ void onTap(int16_t x, int16_t y) {
         sfxPlay(SFX_TAP);
         return;
       }
-      if (y >= 380 && y <= 412 && x >= 148 && x <= 318) {   // LAN battle
+      if (y >= GYMLAN_Y && y <= GYMLAN_Y + GYMLAN_H &&
+          x >= GYMLAN_X && x <= GYMLAN_X + GYMLAN_W) {   // LAN battle
         gymOpen = false;
         lan.state = LINK_OFF;
         lanOpen = true;
@@ -2013,10 +2156,10 @@ void onTap(int16_t x, int16_t y) {
     return;
   }
   if (feedMenuUntil) {       // selector de comida
-    if (timerActive(feedMenuUntil, millis()) && y >= 288 && y <= 352 && x >= 101 && x <= 365) {
-      int item = (x - 101) / 66;
-      if (item == 3) pet.feedCandy();
-      else pet.feedBerry(item);
+    int item = timerActive(feedMenuUntil, millis()) ? feedItemAt(x, y) : -1;
+    if (item >= 0) {
+      if (item == FEED_ITEMS - 1) pet.feedCandy();
+      else pet.feedBerry((uint8_t)item);
       sfxPlay(SFX_EAT);
     }
     feedMenuUntil = 0;
@@ -2528,8 +2671,8 @@ void render() {
     if (!timerActive(feedMenuUntil, millis())) {
       feedMenuUntil = 0;
     } else {
-      gfx->fillRoundRect(101, 288, 264, 64, 14, UI_WHITE);
-      gfx->drawRoundRect(101, 288, 264, 64, 14, inkColor());
+      gfx->fillRoundRect(FEED_X, FEED_Y, FEED_W, FEED_H, 14, UI_WHITE);
+      gfx->drawRoundRect(FEED_X, FEED_Y, FEED_W, FEED_H, 14, inkColor());
       drawMap(SPR_ICON_FOOD, 16, 110, 296, 3, false);
       drawMap(SPR_ICON_BERRY_B, 16, 176, 296, 3, false);
       drawMap(SPR_ICON_BERRY_G, 16, 242, 296, 3, false);
@@ -5042,11 +5185,11 @@ void renderGyms() {
     else gfx->drawCircle(dx, 366, 4, UI_INK);
   }
   // the other kind of battle lives here too
-  gfx->fillRoundRect(148, 380, 170, 32, 9, UI_BG_DAY);
-  gfx->drawRoundRect(148, 380, 170, 32, 9, UI_INK);
+  gfx->fillRoundRect(GYMLAN_X, GYMLAN_Y, GYMLAN_W, GYMLAN_H, 11, UI_BG_DAY);
+  gfx->drawRoundRect(GYMLAN_X, GYMLAN_Y, GYMLAN_W, GYMLAN_H, 11, UI_INK);
   gfx->setTextColor(UI_INK);
   gfx->setTextSize(2);
-  gfx->setCursor(CX - strlen(T(S_LAN)) * 6, 388);
+  gfx->setCursor(CX - strlen(T(S_LAN)) * 6, GYMLAN_Y + 14);
   gfx->print(T(S_LAN));
   gfx->flush();
 }
@@ -5593,7 +5736,7 @@ void boxTap(int16_t x, int16_t y) {
       int free = party.firstFree();
       if (free < 0) { sfxPlay(SFX_DENY); return; }
       party.swapPartyBox((uint8_t)free, boxDetail - 1);
-      boxDetail = 0;
+      monSheetClose();
       boxSel = 0;
       sfxPlay(SFX_MEDAL);
       return;
@@ -5603,8 +5746,7 @@ void boxTap(int16_t x, int16_t y) {
       sfxPlay(SFX_TAP);
       return;
     }
-    boxDetail = 0;                          // anywhere else backs out
-    releaseConfirm = false;
+    monSheetClose();                        // anywhere else backs out
     sfxPlay(SFX_TAP);
     return;
   }
@@ -5630,8 +5772,8 @@ void boxTap(int16_t x, int16_t y) {
     // offers TO PARTY explicitly and shows what you are about to move.
     if (party.box[idx].empty()) { sfxPlay(SFX_DENY); return; }
     if (party.firstFree() < 0) {
-      boxSel = idx + 1;          // party is full: go choose who steps out
-      boxOpen = false;
+      partyReset(false);         // back to the party grid...
+      boxSel = idx + 1;          // ...to choose who steps out for this one
       sfxPlay(SFX_TAP);
       return;
     }
@@ -5640,10 +5782,7 @@ void boxTap(int16_t x, int16_t y) {
     sfxPlay(SFX_TAP);
     return;
   }
-  boxOpen = false;               // anywhere else backs out
-  boxSwapFrom = 0;
-  boxDetail = 0;
-  releaseConfirm = false;
+  partyReset(false);             // anywhere else backs out to the party
 }
 
 // ---------- party ----------
@@ -5742,6 +5881,26 @@ void renderParty() {
   gfx->setTextSize(2);
   gfx->setCursor(CX - (int)strlen(ex) * 6, PARTYCLOSE_Y + 14);
   gfx->print(ex);
+
+  // Either way a creature is lost for good, so the price is on screen first:
+  // LET GO names the newcomer, a slot names who it would replace.
+  if (partyPick && pickConfirm != PICKCONF_NONE) {
+    const PartyMon &n = pet.endedMon;
+    const char *nn = n.nick[0] ? n.nick : DEX_TBL[n.dex].name;
+    char q[40];
+    char sub[44];
+    const char *sub2 = nullptr;
+    if (pickConfirm == PICKCONF_LETGO) {
+      snprintf(q, sizeof(q), T(S_RELEASE_FMT), nn);
+    } else {
+      const PartyMon &o = party.slots[(pickConfirm - 1) % PARTY_SLOTS];
+      snprintf(q, sizeof(q), T(S_RELEASE_FMT), o.nick[0] ? o.nick : DEX_TBL[o.dex].name);
+      snprintf(sub, sizeof(sub), T(S_PARTY_TAKES_FMT), nn);
+      sub2 = sub;
+    }
+    drawConfirmPanel(q, T(S_RELEASE_GONE), sub2, UI_BAR_BAD,
+                     T(S_YES), UI_BAR_BAD, UI_WHITE, T(S_NO), UI_TRACK, UI_INK);
+  }
   gfx->flush();
 }
 

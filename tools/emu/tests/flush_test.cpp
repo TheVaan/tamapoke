@@ -25,6 +25,7 @@ extern bool trainOpen, movePickOpen, battleOpen, gymOpen, playerOpen;
 extern uint8_t cardPage;
 extern uint8_t partyDetail, boxDetail;
 extern bool boxOpen, releaseConfirm;
+extern uint8_t pickConfirm;
 extern Party party;
 extern uint8_t sdAsk;   // the unreadable-SD dialog: 1 ask, 2 formatting, 3 ok, 4 failed
 void startBattle(int16_t dex, uint8_t lvl);
@@ -34,7 +35,7 @@ static void clearAll(){
   cardOpen=galleryOpen=clockOpen=kbOpen=menuOpen=partyOpen=partyPick=false;
   trainOpen=movePickOpen=battleOpen=gymOpen=playerOpen=false;
   boxOpen=releaseConfirm=false;
-  partyDetail=boxDetail=0;
+  partyDetail=boxDetail=pickConfirm=0;
   sdAsk=0;
 }
 static void check(const char *name){
@@ -89,6 +90,10 @@ int main(){
   // every state of the SD dialog, drawn over a game that is fully set up
   // behind it -- it must win and it must flush in each
   for (uint8_t k=1;k<=4;k++){ clearAll(); sdAsk=k; char n[16]; snprintf(n,sizeof(n),"sdcard%u",k); check(n); }
+  // the newcomer's two confirms: let it go, and replace slot 1 with it
+  pet.endedMon = party.slots[0];
+  clearAll(); partyOpen=true; partyPick=true; pickConfirm=0xFF;   check("pickletgo");
+  clearAll(); partyOpen=true; partyPick=true; pickConfirm=1;      check("pickreplace");
 
   clearAll();                       crumbIs("main");
   clearAll(); trainOpen=true;       crumbIs("train");

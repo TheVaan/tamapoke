@@ -46,7 +46,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
     "Has ganado!", "Has perdido...",
     "%s saca a %s", "Adelante, %s!", "GIMNASIOS", "MEDALLAS %u/8", "ENTRENADOR", "VELOCIDAD +%u", "toca: cambiar avatar", "%u en total", "NORMAL", "DIFICIL",
  "ELEGIDOS %u/%u", "LUCHAR", "BLOQUEADO", "POKEMON", "%s derrotado!", "MEDALLA NUEVA!", "VOL %u", "CAJA %u/%u", "cambiar con %s: elige hueco", "CAJA", "TRAER", "solo con un huevo", "COMBATE LAN", "CREAR", "UNIRSE", "buscando...", "listo!", "version distinta", "crear o unirse", "rival: %u mons", "el rival se fue", "esperando al rival...", "OTRA VEZ", "HUIR", "de que region viene el huevo", "%s +%u", "ya no puede entrenar mas", "ELIGE TU REGION", "RETIRAR", "Retirarla ya?", "la siguiente evoluciona un dia mas tarde", "evoluciona un dia mas tarde",   "FALTA PACK", "SOLTAR", "se va para siempre", "AL EQUIPO", "no se unira a tu equipo",
-   "TARJETA SD ILEGIBLE", "Hay que formatearla para usarla", "SE BORRARAN TODOS SUS DATOS", "FORMATEAR", "CANCELAR", "Formateando...", "No saques la tarjeta", "Tarjeta SD lista", "copia ahora los packs de sprites", "Error al formatear", "se sigue sin sprites", },
+   "TARJETA SD ILEGIBLE", "Hay que formatearla para usarla", "SE BORRARAN TODOS SUS DATOS", "FORMATEAR", "CANCELAR", "Formateando...", "No saques la tarjeta", "Tarjeta SD lista", "copia ahora los packs de sprites", "Error al formatear", "se sigue sin sprites",
+   "%s ocupa su lugar", },
   // ---------------- EN ----------------
   {
     "Evolving!", "Yum yum!", "It likes it!", "It's hungry!", "Needs a bath!",
@@ -87,7 +88,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
     "%s sends out %s", "Go, %s!", "GYMS", "BADGES %u/8", "TRAINER",
  "SPEED +%u", "tap: change avatar", "%u earned in all", "EASY", "HARD", "CHOSEN %u/%u", "FIGHT", "LOCKED", "POKEMON", "%s defeated!", "NEW BADGE!", "VOL %u", "BOX %u/%u", "swap with %s: pick a slot", "BOX", "BRING BACK", "only while an egg waits", "LAN BATTLE", "HOST", "JOIN", "searching...", "ready!", "different version", "host or join", "rival: %u mons", "the rival left", "waiting for the rival...", "AGAIN", "RUN", "where this egg comes from", "%s +%u", "trained as far as it can go", "CHOOSE A REGION", "RETIRE", "Retire it early?", "the next one evolves a day later", "evolves a day later",
    "NEEDS PACK", "RELEASE", "gone for good", "TO PARTY", "it will not join your party",
-   "SD CARD UNREADABLE", "It must be formatted to be used", "ALL DATA ON IT WILL BE LOST", "FORMAT", "CANCEL", "Formatting...", "Do not remove the card", "SD card ready", "now copy the sprite packs to it", "Format failed", "carrying on without sprites", },
+   "SD CARD UNREADABLE", "It must be formatted to be used", "ALL DATA ON IT WILL BE LOST", "FORMAT", "CANCEL", "Formatting...", "Do not remove the card", "SD card ready", "now copy the sprite packs to it", "Format failed", "carrying on without sprites",
+   "%s takes its place", },
   // ---------------- FR ----------------
   {
     "Il evolue!", "Miam miam!", "Il aime ca!", "Il a faim!", "Besoin d'un bain!",
@@ -127,7 +129,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
     "Gagne!", "Perdu...",
     "%s envoie %s", "Vas-y, %s!", "ARENES", "BADGES %u/8", "DRESSEUR", "VITESSE +%u", "touche: changer d'avatar", "%u au total", "NORMAL", "DIFFICILE", "CHOISIS %u/%u", "COMBATTRE", "VERROUILLE", "POKEMON", "%s vaincu!", "NOUVEAU BADGE!", "VOL %u", "BOITE %u/%u", "echanger avec %s: choisis", "BOITE", "RAMENER", "seulement avec un oeuf", "COMBAT LAN", "CREER", "REJOINDRE", "recherche...", "pret!", "version differente", "creer ou rejoindre", "rival: %u mons", "le rival est parti", "en attente du rival...", "ENCORE", "FUIR", "d ou vient cet oeuf", "%s +%u", "ne peut plus progresser", "CHOISIS TA REGION", "RETIRER", "Retirer maintenant?", "le suivant evolue un jour plus tard", "evolue un jour plus tard",
    "PACK REQUIS", "RELACHER", "parti pour de bon", "A L EQUIPE", "ne rejoindra pas l equipe",
-   "CARTE SD ILLISIBLE", "Elle doit etre formatee", "TOUTES SES DONNEES SERONT PERDUES", "FORMATER", "ANNULER", "Formatage...", "Ne retirez pas la carte", "Carte SD prete", "copiez-y les packs de sprites", "Echec du formatage", "on continue sans sprites", },
+   "CARTE SD ILLISIBLE", "Elle doit etre formatee", "TOUTES SES DONNEES SERONT PERDUES", "FORMATER", "ANNULER", "Formatage...", "Ne retirez pas la carte", "Carte SD prete", "copiez-y les packs de sprites", "Echec du formatage", "on continue sans sprites",
+   "%s prend sa place", },
   // ---------------- DE ----------------
   {
     "Entwickelt sich!", "Mampf mampf!", "Gefaellt ihm!", "Hat Hunger!", "Braucht ein Bad!",
@@ -167,7 +170,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
     "Gewonnen!", "Verloren...",
     "%s schickt %s", "Los, %s!", "ARENEN", "ORDEN %u/8", "TRAINER", "TEMPO +%u", "tippen: Avatar wechseln", "%u insgesamt", "NORMAL", "SCHWER", "GEWAEHLT %u/%u", "KAEMPFEN", "GESPERRT", "POKEMON", "%s besiegt!", "NEUER ORDEN!", "LAUT %u", "BOX %u/%u", "mit %s tauschen: waehle", "BOX", "ZURUECK", "nur mit einem Ei", "LAN KAMPF", "HOSTEN", "BEITRETEN", "suche...", "bereit!", "andere Version", "hosten oder beitreten", "Gegner: %u", "der Gegner ist weg", "warte auf den Gegner...", "NOCHMAL", "FLUCHT", "woher dieses Ei kommt", "%s +%u", "kann nicht weiter trainieren", "WAEHLE DEINE REGION", "VERABSCHIEDEN", "Jetzt verabschieden?", "das naechste entwickelt sich einen Tag spaeter", "entwickelt sich einen Tag spaeter",
    "PACK FEHLT", "FREILASSEN", "fuer immer weg", "INS TEAM", "kommt nicht ins team",
-   "SD-KARTE NICHT LESBAR", "Sie muss formatiert werden", "ALLE DATEN GEHEN VERLOREN", "FORMATIEREN", "ABBRECHEN", "Formatiere...", "Karte nicht entfernen", "SD-Karte bereit", "jetzt die Sprite-Packs kopieren", "Formatieren fehlgeschlagen", "weiter ohne Sprites", },
+   "SD-KARTE NICHT LESBAR", "Sie muss formatiert werden", "ALLE DATEN GEHEN VERLOREN", "FORMATIEREN", "ABBRECHEN", "Formatiere...", "Karte nicht entfernen", "SD-Karte bereit", "jetzt die Sprite-Packs kopieren", "Formatieren fehlgeschlagen", "weiter ohne Sprites",
+   "%s nimmt den Platz ein", },
   // ---------------- IT ----------------
   {
     "Si evolve!", "Gnam gnam!", "Gli piace!", "Ha fame!", "Vuole un bagno!",
@@ -207,7 +211,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
     "Hai vinto!", "Hai perso...",
     "%s manda %s", "Vai, %s!", "PALESTRE", "MEDAGLIE %u/8", "ALLENATORE", "VELOCITA +%u", "tocca: cambia avatar", "%u in totale", "NORMALE", "DIFFICILE", "SCELTI %u/%u", "LOTTA", "BLOCCATO", "POKEMON", "%s sconfitto!", "NUOVA MEDAGLIA!", "VOL %u", "BOX %u/%u", "scambia con %s: scegli", "BOX", "RIPORTA", "solo con un uovo", "LOTTA LAN", "CREA", "ENTRA", "ricerca...", "pronto!", "versione diversa", "crea o entra", "rivale: %u mons", "il rivale se n' e andato", "in attesa del rivale...", "ANCORA", "FUGGI", "da quale regione viene l uovo", "%s +%u", "non puo allenarsi oltre", "SCEGLI LA REGIONE", "RITIRARE", "Ritirarla adesso?", "il prossimo evolve un giorno dopo", "evolve un giorno dopo",
    "MANCA PACK", "LIBERA", "via per sempre", "AL GRUPPO", "non entrera nel gruppo",
-   "SCHEDA SD ILLEGGIBILE", "Va formattata per usarla", "TUTTI I DATI ANDRANNO PERSI", "FORMATTA", "ANNULLA", "Formattazione...", "Non togliere la scheda", "Scheda SD pronta", "ora copia i pack di sprite", "Formattazione fallita", "si continua senza sprite", },
+   "SCHEDA SD ILLEGGIBILE", "Va formattata per usarla", "TUTTI I DATI ANDRANNO PERSI", "FORMATTA", "ANNULLA", "Formattazione...", "Non togliere la scheda", "Scheda SD pronta", "ora copia i pack di sprite", "Formattazione fallita", "si continua senza sprite",
+   "%s prende il suo posto", },
   // ---------------- PT ----------------
   {
     "Evoluindo!", "Nham nham!", "Ele gosta!", "Esta com fome!", "Precisa de banho!",
@@ -247,7 +252,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
     "Ganhaste!", "Perdeste...",
     "%s envia %s", "Vai, %s!", "GINASIOS", "MEDALHAS %u/8", "TREINADOR", "VELOCIDADE +%u", "toca: mudar avatar", "%u no total", "NORMAL", "DIFICIL", "ESCOLHIDOS %u/%u", "LUTAR", "BLOQUEADO", "POKEMON", "%s derrotado!", "NOVA MEDALHA!", "VOL %u", "CAIXA %u/%u", "trocar com %s: escolhe", "CAIXA", "TRAZER", "so com um ovo", "COMBATE LAN", "CRIAR", "ENTRAR", "a procurar...", "pronto!", "versao diferente", "criar ou entrar", "rival: %u mons", "o rival saiu", "a esperar pelo rival...", "OUTRA VEZ", "FUGIR", "de que regiao vem o ovo", "%s +%u", "ja nao pode treinar mais", "ESCOLHE A REGIAO", "REFORMAR", "Reformar agora?", "o proximo evolui um dia depois", "evolui um dia depois",
    "FALTA PACK", "SOLTAR", "vai para sempre", "A EQUIPA", "nao entrara na equipa",
-   "CARTAO SD ILEGIVEL", "Tem de ser formatado para o usar", "TODOS OS DADOS SERAO PERDIDOS", "FORMATAR", "CANCELAR", "A formatar...", "Nao retires o cartao", "Cartao SD pronto", "copia agora os packs de sprites", "Falha ao formatar", "continua sem sprites", },
+   "CARTAO SD ILEGIVEL", "Tem de ser formatado para o usar", "TODOS OS DADOS SERAO PERDIDOS", "FORMATAR", "CANCELAR", "A formatar...", "Nao retires o cartao", "Cartao SD pronto", "copia agora os packs de sprites", "Falha ao formatar", "continua sem sprites",
+   "%s fica no lugar", },
 };
 
 // Nombres de medalla en sus tres longitudes [idioma][medalla].
