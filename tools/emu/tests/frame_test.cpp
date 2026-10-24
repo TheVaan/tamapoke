@@ -33,17 +33,37 @@ extern uint8_t dimStage;
 extern uint32_t lastInteract;
 extern uint32_t gFlushCalls, gFramePushes;
 extern uint32_t gCrumbScreen;
+extern const char *const SCREEN_NAME[];
+#include <cstring>
+#include <vector>
 void startSack();
 
 static int bad=0;
 static void ck(bool ok,const char*w){printf("%s  %s\n",ok?"PASS":"FAIL",w); if(!ok)bad++;}
 
+
+// The test's OWN copy of what the panel shows: updated on every push, and every
+// flush that did not push is checked against it. A frame that differs from the
+// panel and was not pushed is a frozen panel, whatever the canvas thinks.
+static std::vector<uint16_t> panelCopy;
+static int dropped = 0, moved = 0;
+static void afterFlush(uint32_t pushesBefore){
+  const uint16_t *fb = gfx->buffer();
+  bool differs = panelCopy.empty() || memcmp(panelCopy.data(), fb, panelCopy.size() * 2) != 0;
+  if (gfx->pushes != pushesBefore) { if (differs) moved++; panelCopy.assign(fb, fb + 466 * 466); }
+  else if (differs && !screenOff) dropped++;   // dark: nothing is meant to go out
+}
+static void flushTracked(){ uint32_t p = gfx->pushes; gfx->flush(); afterFlush(p); }
+// identical flushes until one is skipped: the screen has settled
+static void settle(){ for (int i = 0; i < 4; i++) { uint32_t p = gfx->pushes; flushTracked(); if (gfx->pushes == p) return; } }
 // real time, because loop() paces itself off millis()
 static void pumpMs(int ms){
   auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
   while (std::chrono::steady_clock::now() < end) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    uint32_t c = gFlushCalls, p = gfx->pushes;
     loop();
+    if (gFlushCalls != c) afterFlush(p);
   }
 }
 static void touch(int x,int y){
@@ -99,7 +119,9 @@ int main(){
   // the real path: a touch while dark wakes it (handleTouch clears screenOff)
   std::this_thread::sleep_for(std::chrono::milliseconds(25));   // past the 20 ms touch poll gate
   g_touchX=233; g_touchY=200; g_touchDown=true; emuFireInterrupt();
-  loop();                           // ONE pass: the wake must happen inside it
+  { uint32_t c = gFlushCalls, p = gfx->pushes;
+    loop();                         // ONE pass: the wake must happen inside it
+    if (gFlushCalls != c) afterFlush(p); }
   ck(!screenOff, "the touch woke the screen");
   ck(gfx->pushes > p0, "the wake pushes a frame in the same loop pass");
   ck(gfx->pushBrightness == 0,
@@ -121,6 +143,89 @@ int main(){
   c0 = gFlushCalls;
   pumpMs(500);
   ck(dimStage == 0 && gFlushCalls - c0 >= 3, "a touch restores the full rate at once");
+
+  // --- 5. an unchanged frame is not pushed --------------------------------
+  // The mechanism first, on the framebuffer directly, so it does not depend on
+  // what any screen happens to draw.
+  {
+    uint16_t *fb = gfx->getFramebuffer();
+    const int W = 466;
+    settle();
+    uint32_t q = gfx->pushes;
+    flushTracked();
+    ck(gfx->pushes == q, "an identical frame is not pushed");
+    fb[465 * W + 465] ^= 0x0001; flushTracked();
+    ck(gfx->pushes == q + 1, "one changed pixel in the LAST row is pushed");
+    settle(); q = gfx->pushes;
+    fb[0] ^= 0x0001; flushTracked();
+    ck(gfx->pushes == q + 1, "one changed pixel in the FIRST row is pushed");
+    // A change near the top of a settled screen must still hash the rows below
+    // it, or the next -- identical -- frame finds them unknown and goes out too.
+    flushTracked();
+    ck(gfx->pushes == q + 1, "a change on a settled screen costs ONE push, not two");
+
+    // The early exit must not leave a stale row vouching for the panel. On a
+    // screen that is MOVING (so the scan stops at the first changed row),
+    // change rows 10 AND 400: row 400's stored hash is still the OLD content.
+    // Put row 400 back to that old content: the panel shows the NEW row 400,
+    // so the frame differs from the panel -- even though row 400 now matches
+    // its stale stored hash -- and must go out.
+    settle(); q = gfx->pushes;
+    fb[300 * W + 7] ^= 0x0001; flushTracked();                     // now moving
+    uint16_t old400 = fb[400 * W + 10];
+    fb[10 * W + 5] ^= 0x0001; fb[400 * W + 10] ^= 0x0101; flushTracked();
+    ck(gfx->pushes == q + 2, "a moving screen changed at rows 10 and 400 is pushed");
+    fb[400 * W + 10] = old400; flushTracked();
+    ck(gfx->pushes == q + 3,
+       "a row the early exit never re-hashed is not trusted (row 400 put back is pushed)");
+    flushTracked();
+    ck(gfx->pushes == q + 3, "and once re-hashed, the same frame is skipped again");
+    ck(dropped == 0, "no frame that differed from the panel was ever dropped");
+  }
+
+  // Then the screens themselves, through loop().
+  lastInteract = millis();
+  partyOpen = true;
+  pumpMs(300);
+  ck(!strcmp(SCREEN_NAME[uiCurrentScreen()], "party"), "the party screen is up");
+  c0 = gFlushCalls; p0 = gfx->pushes;
+  pumpMs(1500);
+  printf("     party, 1500 ms: %u flushes asked for, %u pushed\n",
+         gFlushCalls - c0, gfx->pushes - p0);
+  ck(gFlushCalls - c0 >= 10, "the static party screen is still redrawn at 10 fps");
+  ck(gfx->pushes - p0 <= 1, "but pushed at most once in 1.5 s");
+  p0 = gfx->pushes;
+  pumpMs(2600);
+  ck(gfx->pushes - p0 >= 1 && gfx->pushes - p0 <= 2,
+     "and still refreshed about every 2 s, in case a change was missed");
+  partyOpen = false;
+  pumpMs(150);
+  ck(gfx->frameReady, "closing it pushes the main screen");
+
+  // An animated screen loses nothing: every main-screen frame that differs
+  // from what the panel shows goes out. Checked against a copy of the panel
+  // the test keeps itself, not against the canvas's own bookkeeping.
+  c0 = gFlushCalls; p0 = gfx->pushes;
+  int moved0 = moved;
+  pumpMs(1500);
+  printf("     main, 1500 ms: %u flushes asked for, %u pushed, %d of them changed\n",
+         gFlushCalls - c0, gfx->pushes - p0, moved - moved0);
+  ck(moved - moved0 >= 3, "the main screen really is moving here");
+  ck(dropped == 0, "and not one of its changed frames was dropped");
+
+  ck(dropped == 0, "over the whole run, no lit frame that differed from the panel was dropped");
+
+  // What the hash costs here, against what it saves. Printed, not asserted:
+  // the host is not the board. See the commit message for the S3 estimate.
+  {
+    auto t0 = std::chrono::steady_clock::now();
+    const int N = 200;
+    uint16_t *fb = gfx->getFramebuffer();
+    for (int i = 0; i < N; i++) { fb[465 * 466 + 400] ^= 1; gfx->flush(); }   // full scans
+    auto t1 = std::chrono::steady_clock::now();
+    double us = std::chrono::duration<double, std::micro>(t1 - t0).count() / N;
+    printf("     host: one full-frame scan + decision = %.0f us\n", us);
+  }
 
   printf("%s\n", bad?"FAILURES":"all good");
   return bad?1:0;
