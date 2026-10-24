@@ -1805,7 +1805,6 @@ void onTap(int16_t x, int16_t y) {
         pet.declineLearn();
       }
       return;   // modal: nothing else on screen responds until it is answered
-      return;
     }
     case SCR_TRAIN: {
       bool inPanel = (x >= TRAIN_X && x <= TRAIN_X + TRAIN_W &&
