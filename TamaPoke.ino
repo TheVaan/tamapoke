@@ -2189,7 +2189,10 @@ void onTap(int16_t x, int16_t y) {
       // the avatar is the only other live target; everything else backs out
       if (playerPage == 0 && x > CX - 40 && x < CX + 40 && y > 70 && y < 146) {
         pet.avatar = (uint8_t)((pet.avatar + 1) % AVATAR_COUNT);
-        pet.flushSave();
+        // saveNow(), not flushSave(): flushSave() only writes when a save is
+        // already PENDING, so with nothing pending this choice never reached
+        // NVS and a reboot put the old avatar back.
+        pet.saveNow();
         sfxPlay(SFX_TAP);
         return;
       }
@@ -2327,7 +2330,9 @@ void onTap(int16_t x, int16_t y) {
         for (int s = 0; s < MOVE_SLOTS; s++)
           if (tgt[s] == all[idx] && s != movePickSlot) tgt[s] = tgt[movePickSlot];
         tgt[movePickSlot] = all[idx];
-        if (movePickParty) party.save(); else pet.flushSave();
+        // The live pet's moveset is a decision, saved at once like the party's
+        // is. flushSave() wrote nothing unless a save happened to be pending.
+        if (movePickParty) party.save(); else pet.saveNow();
         movePickOpen = false;
         return;
       }
