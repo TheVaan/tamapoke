@@ -487,7 +487,7 @@ static int regionPickTap(int16_t x, int16_t y, uint8_t mode);
 static void drawEggRegion();          // defined with the egg screen helpers
 static int eggRegionTap(int16_t x, int16_t y);
 static void drawBtlBack();
-static void btlLinkPoll();   // defined with the battle code, called from render()
+static void btlLinkPoll();   // defined with the battle code, called from loop()
 static void crumbDrop();     // loop() leaves the breadcrumb itself while the panel is off
 static void btlSwitchTo(uint8_t i);
 static void btlResolve(uint8_t yourMove);
@@ -1118,6 +1118,16 @@ void loop() {
   // without a touch) nobody is looking: 2 fps there instead of 10. A touch drops
   // dimStage straight back to 0, and lastRender is by then >= 100 ms old, so the
   // first lit frame is drawn on the very next pass.
+  //
+  // The link battle's turn engine runs HERE, before the frame, on every pass.
+  // It used to run from render(), and btlApplyResult()/btlSwitchTo() ->
+  // btlSyncSprite() can stream a ~135 KB sprite from SD: that load happened in
+  // the middle of drawing a frame, and stopped whenever drawing did (the
+  // screen off). Same screens as before -- the fight and its win screen.
+  {
+    uint8_t scr = uiCurrentScreen();
+    if (scr == SCR_BATTLE || scr == SCR_WIN) btlLinkPoll();
+  }
   // The first frame goes out on the first pass whatever the clock says, so the
   // panel updateBrightness() just lit is never showing setup()'s black frame.
   static bool firstFrame = true;
@@ -1131,9 +1141,8 @@ void loop() {
     // that IS game logic: the three minigames step and score inside their
     // render functions, and drawBath() is what applies pet.clean() when the
     // bath ends. Those keep running (FrameCanvas drops the push while dark), so
-    // turning the screen off mid-game changes nothing but what is visible. A
-    // link battle too, for as long as btlLinkPoll() is called from render().
-    if (screenOff && !game && !bathUntil && !(battleOpen && btlLink)) crumbDrop();
+    // turning the screen off mid-game changes nothing but what is visible.
+    if (screenOff && !game && !bathUntil) crumbDrop();
     else render();
   }
 }
@@ -2893,8 +2902,7 @@ void render() {
     case SCR_CLOCK: renderClock(); return;
     case SCR_BATTLE:
     case SCR_WIN:
-      btlLinkPoll();
-      renderBattle();
+      renderBattle();   // the link's turn engine runs from loop(), not here
       return;
     case SCR_PICK: renderPick(); return;
     case SCR_LAN: renderLan(); return;
