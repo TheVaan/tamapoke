@@ -143,3 +143,8 @@ extern bool sdDirty;  // true tras recibir archivos: recargar sprite
 // until the board was rebooted, which looked exactly like the download failing.
 // The main loop rescans when this is set; the transfer itself is never delayed.
 extern bool sdArtDirty;
+// Called by the PUT handler for every file that arrived whole. Defined in the
+// sketch: it sets sdDirty only when the file is the live creature's own sprite
+// (or thumbs.bin), and arms sdArtDirty for a rescan loop() runs once the
+// transfer has gone quiet -- not after every one of a pack's ~300 files.
+void sdPutLanded(const char *path);

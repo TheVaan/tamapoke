@@ -366,12 +366,11 @@ bool sdSerialCommand(const String &line) {
     }
     f.close();
     Serial.setTimeout(1000);
-    sdDirty = (remaining == 0);
-    // A pack file just landed, so which regions are playable may have changed.
-    // Flag it rather than rescanning here: this runs between the last data block
-    // and the DONE the host is waiting on, and 15 file opens belong nowhere near
-    // that. loop() picks it up.
-    if (remaining == 0) sdArtDirty = true;
+    // What a finished file is worth reloading -- the pet's sprite, the region
+    // scan -- is decided by the sketch, which knows the creature on screen.
+    // Nothing is reloaded here: this runs between the last data block and the
+    // DONE the host is waiting on. See sdPutLanded().
+    if (remaining == 0) sdPutLanded(path.c_str());
     Serial.println(remaining == 0 ? "DONE" : "ERR");
     return true;
   } else if (line == "LS") {
