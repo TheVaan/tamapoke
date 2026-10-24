@@ -971,7 +971,11 @@ void ensureMon() {
   }
 }
 
-#define SAVE_MAX_DEFER_MS 600000UL   // 10 min: the longest a change waits unsaved
+// 2 min: the longest a change waits unsaved while the panel stays lit. Short on
+// purpose -- this is the window a crash or a flat battery can still take, and
+// losing progress is exactly what players report. The panel dims after 90 s
+// without a touch, and that flushes at once anyway.
+#define SAVE_MAX_DEFER_MS 120000UL
 void loop() {
   uint32_t now = millis();
   pet.update(now);

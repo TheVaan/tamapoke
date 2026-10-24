@@ -3,7 +3,7 @@
 //   * never while the player is actively using the device,
 //   * as soon as the panel dims,
 //   * and, so that continuous play cannot hold a change unsaved forever, once
-//     it has waited SAVE_MAX_DEFER_MS (10 min) even with the panel lit.
+//     it has waited SAVE_MAX_DEFER_MS (2 min) even with the panel lit.
 // The clock is the emulator's own, sped up with emuSetTimeScale() so ten
 // minutes pass in well under a second.
 #include "Arduino.h"
@@ -72,13 +72,13 @@ int main(){
   uint32_t n1 = pet.saveCount;
   emuSetTimeScale(2000);
   uint32_t t0 = millis();
-  activeUntil(t0 + 300000);              // 5 virtual minutes
-  ck(pet.saveCount == n1, "five minutes of continuous play: still not written");
-  activeUntil(t0 + 660000);              // 11 virtual minutes
+  activeUntil(t0 + 60000);               // 1 virtual minute
+  ck(pet.saveCount == n1, "one minute of continuous play: still not written");
+  activeUntil(t0 + 150000);              // 2.5 virtual minutes
   emuSetTimeScale(1);
-  printf("     11 min of continuous play: %u save(s)\n", pet.saveCount - n1);
+  printf("     2.5 min of continuous play: %u save(s)\n", pet.saveCount - n1);
   ck(pet.saveCount - n1 >= 1 && pet.saveCount - n1 <= 2,
-     "after ten minutes it is written anyway, panel lit or not");
+     "after two minutes it is written anyway, panel lit or not");
 
   printf("%s\n", bad?"FAILURES":"all good");
   return bad?1:0;
