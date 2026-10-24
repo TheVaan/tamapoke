@@ -221,6 +221,7 @@ extern const char *const SCREEN_NAME[SCR_COUNT];   // const is internal linkage 
 // produce one -- did not. A green emulator build is not proof the firmware
 // builds; only arduino-cli is.
 void bootReport();
+void bootReportAgain();
 uint8_t uiCurrentScreen();
 // Declared here because renderMonSheet() and the sheet's tap handlers use both
 // ~4000 lines above where they are defined. The emulator generates a proto.h and
@@ -687,7 +688,14 @@ void setup() {
   // QSPI a 80MHz (por defecto 40): el flush del framebuffer es el cuello de
   // botella del fps (~56ms a 40MHz). Si el panel mostrara basura, bajar a 40M.
   if (!gfx->begin(80000000)) Serial.println("gfx->begin() fallo");
-  panel->setBrightness(180);
+  // Dark, with a black frame pushed, until loop() draws the first real one.
+  // The framebuffer is fresh PSRAM -- whatever was in it -- and setup() still
+  // has the touch retries, the SD mount and the offline catch-up to run, so
+  // lighting the panel here showed that for a second or more on every boot.
+  // updateBrightness() turns it on in the same loop() that renders.
+  gfx->fillScreen(RGB565_BLACK);
+  gfx->flush();
+  panel->setBrightness(0);
 
   touch.setPins(TP_RESET, TP_INT);
   bool touchOk = false;
@@ -843,7 +851,11 @@ void loop() {
   // 85 ms en juego/saco: margen seguro para que el redibujado no pise el envio
   // DMA del frame anterior (a 40-65 ms solapaba y causaba flashes negros; con
   // sprites grandes el dibujo tarda mas, asi que se deja colchon)
-  if (now - lastRender >= (uint32_t)((gameOpen || sackOpen || spdOpen) ? 85 : 100)) {
+  // The first frame goes out on the first pass whatever the clock says, so the
+  // panel updateBrightness() just lit is never showing setup()'s black frame.
+  static bool firstFrame = true;
+  if (firstFrame || now - lastRender >= (uint32_t)((gameOpen || sackOpen || spdOpen) ? 85 : 100)) {
+    firstFrame = false;
     lastRender = now;
     render();
   }
@@ -1120,6 +1132,7 @@ void handleSerial() {
     Serial.printf("psram=%u screen=%s btlspr=%d/%d\n", (unsigned)ESP.getFreePsram(),
                   SCREEN_NAME[uiCurrentScreen() % SCR_COUNT],
                   btlPmd[0].loaded ? 1 : 0, btlPmd[1].loaded ? 1 : 0);
+    bootReportAgain();
     Serial.println("DONE");
   } else if (line == "STATS") {
     Serial.printf("spec=%d nv=%u com=%u fel=%u ene=%u lim=%u desc=%u sd=%d mon=%d bat=%d usb=%d rtc=%u\n",
@@ -2233,22 +2246,45 @@ static const char *resetReasonName(int r) {
   }
 }
 
+// What bootReport() found, kept for HEALTH. The boot line itself is printed
+// before USB CDC has enumerated (the port IS the firmware, so it does not exist
+// until it runs) and with a TX timeout of 0, so it is usually lost -- exactly
+// after the crash it is meant to explain. HEALTH asks again, any time later.
+static int gBootReset = 0;
+static int16_t gBootCrashScreen = -1;   // -1 no crash, SCR_COUNT crash w/o crumb
+static uint32_t gBootCrashHeap = 0;
+
 // Printed once at boot. On a clean start it is one line; after a crash it says
 // which screen was up and how much heap was left, which is the whole point.
 void bootReport() {
   int r = (int)esp_reset_reason();
   bool bad = (r == ESP_RST_PANIC || r == ESP_RST_INT_WDT ||
               r == ESP_RST_TASK_WDT || r == ESP_RST_WDT || r == ESP_RST_BROWNOUT);
+  gBootReset = r;
   Serial.printf("boot: reset=%s heap=%u psram=%u\n", resetReasonName(r),
                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
   if (bad && gCrumbMagic == CRUMB_MAGIC) {
+    gBootCrashScreen = gCrumbScreen < SCR_COUNT ? (int16_t)gCrumbScreen : (int16_t)SCR_COUNT;
+    gBootCrashHeap = gCrumbHeap;
     Serial.printf("CRASH: it died on the '%s' screen with heap=%u\n",
                   gCrumbScreen < SCR_COUNT ? SCREEN_NAME[gCrumbScreen] : "?",
                   (unsigned)gCrumbHeap);
   } else if (bad) {
+    gBootCrashScreen = SCR_COUNT;
     Serial.println("CRASH: no breadcrumb (RTC memory was lost too)");
   }
   gCrumbMagic = 0;   // one report per crash, not on every later boot
+}
+
+// The same report on demand (HEALTH), from what bootReport() kept.
+void bootReportAgain() {
+  Serial.printf("last boot: reset=%s", resetReasonName(gBootReset));
+  if (gBootCrashScreen >= 0 && gBootCrashScreen < SCR_COUNT)
+    Serial.printf(" crash on '%s' heap=%u", SCREEN_NAME[gBootCrashScreen],
+                  (unsigned)gBootCrashHeap);
+  else if (gBootCrashScreen == SCR_COUNT)
+    Serial.printf(" crash, no breadcrumb");
+  Serial.println();
 }
 
 void render() {
