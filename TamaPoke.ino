@@ -906,6 +906,31 @@ void setup() {
   lastInteract = millis();
 }
 
+// A file arrived whole over PUT (sdmon.cpp). Every file used to set sdDirty,
+// so during a pack install ensureMon() threw away and re-streamed the pet's
+// ~135 KB sprite after EACH of ~300 files. Only the creature's own sprite --
+// PMD or the old TPK1 format, shiny or not -- or thumbs.bin can change what
+// it shows, so only those mark it now. The region rescan is armed and left to
+// loop(), which waits for the transfer to go quiet.
+#define SD_ART_SETTLE_MS 2000
+uint32_t gSdArtDirtyAt = 0;
+bool sdPathIsMonOf(const char *path, int16_t dex) {
+  if (dex < 1) return false;
+  const char *b = strrchr(path, '/');
+  b = b ? b + 1 : path;
+  if (*b == 'p') b++;                    // PMD (TPK2)
+  if (*b == 's') b++;                    // shiny
+  if (*b < '0' || *b > '9') return false;
+  char *end = nullptr;
+  long n = strtol(b, &end, 10);
+  return end && !strcmp(end, ".bin") && n == dex;
+}
+void sdPutLanded(const char *path) {
+  sdArtDirty = true;
+  gSdArtDirtyAt = millis();
+  if (sdPathIsMonOf(path, pet.speciesId) || strstr(path, "thumbs.bin")) sdDirty = true;
+}
+
 // carga/descarga el sprite de SD cuando cambia la especie
 void ensureMon() {
   if (pet.speciesId == monFor && monShinyFor == pet.shiny && !sdDirty) return;
@@ -953,16 +978,21 @@ void loop() {
   handleSerial();
   ensureMon();
 
+  // the format result page closes itself; a tap closes it sooner
+  if (sdAsk >= SDASK_OK && (int32_t)(now - sdAskUntil) >= 0) sdAsk = SDASK_NONE;
+
   // A sprite pack can arrive long after the card was mounted: the web installer
   // streams it over PUT into the FIRMWARE THAT IS ALREADY RUNNING. gRegionArt was
   // computed once in sdBegin(), so without this the region a player just spent ten
   // minutes downloading stayed greyed out reading NEEDS PACK until they rebooted --
   // indistinguishable, from the player's side, from the download having failed.
   // Quietly, because the host is still parsing this serial stream.
-  // the format result page closes itself; a tap closes it sooner
-  if (sdAsk >= SDASK_OK && (int32_t)(now - sdAskUntil) >= 0) sdAsk = SDASK_NONE;
-
-  if (sdArtDirty) {
+  //
+  // Debounced: a pack is ~300 files, and rescanning (~20 file opens) after
+  // every one of them was pure overhead in the middle of the transfer. It runs
+  // once the PUTs have stopped for SD_ART_SETTLE_MS -- a couple of seconds
+  // after the pack completes, still without a reboot.
+  if (sdArtDirty && millis() - gSdArtDirtyAt >= SD_ART_SETTLE_MS) {
     sdArtDirty = false;
     sdScanRegionArt(false);
   }

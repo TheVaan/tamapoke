@@ -37,7 +37,16 @@ void emuSetSdFormatHook(void (*f)()) { g_emuFormatHook = f; }
 // here and no PUT path, so the flag never sets and the scan is a no-op -- but both
 // symbols are referenced from loop(), so they have to exist to link.
 bool sdArtDirty = false;
-void sdScanRegionArt(bool) {}
+// Counted, so a test can see WHEN loop() rescans. g_emuCardArt stands in for
+// the packs on a card: 0 (the default) keeps the scan a no-op, as with no card;
+// a test that sets it gets gRegionArt narrowed to it, as the real scan would.
+extern uint16_t gRegionArt;   // pet.cpp
+int g_emuArtScans = 0;
+uint16_t g_emuCardArt = 0;
+void sdScanRegionArt(bool) {
+  g_emuArtScans++;
+  if (g_emuCardArt) gRegionArt = g_emuCardArt;
+}
 SdThumbs thumbs;
 
 static uint8_t *slurp(const std::string &path, uint32_t *size) {
