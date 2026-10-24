@@ -232,7 +232,7 @@ void Pet::tick() {
   // Descuido: dejar una estadistica por los suelos cuenta como error de
   // cuidado (con enfriamiento para no contar el mismo descuido cada minuto)
   if (mistakeCooldown > 0) mistakeCooldown--;
-  if (lowestStat() <= 10 && mistakeCooldown == 0) {
+  if (lowestStat() <= CARE_MISTAKE_STAT && mistakeCooldown == 0) {
     // Saturates rather than wraps: a revived companion never leaves, and 256
     // mistakes (~10.7 days of neglect at one an hour) used to roll back to 0,
     // which re-qualifies for MED_FIT and erases every evolution delay.
@@ -1099,6 +1099,22 @@ uint8_t Pet::playResult(uint8_t score) {
   registerCare();
   save();
   return gain;
+}
+
+uint8_t Pet::battleBlock() const {
+  if (isEgg()) return FIGHT_EGG;
+  if (sleeping) return FIGHT_ASLEEP;
+  // Strictly above the care-mistake line AFTER paying: energy == cost + 11 may
+  // fight and lands on 11, cost + 10 may not, since it would land on 10.
+  if ((int)energy - BATTLE_ENERGY_COST <= CARE_MISTAKE_STAT) return FIGHT_TIRED;
+  return FIGHT_OK;
+}
+
+bool Pet::payBattleEnergy() {
+  if (!canBattle()) return false;
+  energy = clamp100((int)energy - BATTLE_ENERGY_COST);
+  save();   // like feeding: a reset right after the fight must not refund it
+  return true;
 }
 
 // saco de entrenamiento: los golpes entrenan la fuerza. Devuelve la subida.

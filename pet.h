@@ -34,6 +34,18 @@
 #define NIGHT_END 6
 enum : uint8_t { SLEEP_NONE = 0, SLEEP_AUTO, SLEEP_PLAYER };
 #define DEF_TRAIN_TICKS 60                 // minutos de bienestar por +1 de DEF
+// A stat at or below this counts a care mistake (see tick()). Named because
+// canBattle() has to stay clear of exactly the same line.
+#define CARE_MISTAKE_STAT 10
+// What a battle costs the LIVE pet, charged once when the fight actually starts
+// and only if the live pet is in the squad -- banked members fight for free.
+// This, not a cooldown timer, is what rate-limits rematching a leader for the
+// training reward. The live pet may join only while
+// energy - BATTLE_ENERGY_COST > CARE_MISTAKE_STAT, so a battle on its own can
+// never be the thing that counts a care mistake.
+#define BATTLE_ENERGY_COST 10
+// Why the live pet cannot join a fight right now; FIGHT_OK means it can.
+enum : uint8_t { FIGHT_OK = 0, FIGHT_EGG, FIGHT_ASLEEP, FIGHT_TIRED };
 
 // ceremonias de fin de ciclo
 enum : uint8_t { CER_NONE = 0, CER_FAREWELL, CER_RUNAWAY, CER_RELEASE };
@@ -169,6 +181,14 @@ public:
   // gained; 0 means every stat is at its ceiling. Costs nothing: the fight
   // already spent the energy, and that is what rate-limits rematching.
   uint8_t rewardTraining(uint8_t amount, uint8_t &which);
+  // May the live pet join a battle? THE single answer: the team picker's
+  // default, its taps, its cells, buildSquad() and the LAN start all ask it,
+  // because a rule with a second copy is how this project's worst bugs shipped.
+  uint8_t battleBlock() const;
+  bool canBattle() const { return battleBlock() == FIGHT_OK; }
+  // Charges BATTLE_ENERGY_COST and persists it. Refuses (and charges nothing)
+  // if the pet may not fight, so a caller cannot charge past the rule.
+  bool payBattleEnergy();
   uint16_t spdHi = 0;    // best reaction-test score
 
   // stats de combate: base real de gen 1 + nivel + IV + entrenamiento

@@ -36,7 +36,7 @@
 
 // Version del firmware. Subir este numero en cada release (y manifest.json para
 // el instalador web). Se muestra en la pantalla de ajustes y por serie al arrancar.
-#define FW_VERSION "3.12"
+#define FW_VERSION "3.13"
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(
   LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
@@ -463,6 +463,11 @@ uint8_t btlTrainGain = 0;    // what the win trained, for the win screen
 uint8_t btlTrainWhich = 0;
 bool btlLink = false;      // this fight is against another device
 bool btlLinkHost = false;
+// Whether the squad offered to the LAN peer holds the live pet. Recorded when
+// the offer is built, because the fight itself is rebuilt from lan.mine, which
+// no longer says who is who -- and the live pet pays for the fight only when it
+// actually starts, so a pairing that never completes costs nothing.
+bool lanPetIn = false;
 static bool gymUnlocked(uint8_t idx, bool hard) {
   return idx == 0 || pet.hasBadge(gymRegion, idx - 1, hard);
 }
@@ -3652,7 +3657,10 @@ static void buildSquad(uint8_t maxLvl, uint8_t maxCount, uint16_t mask) {
   btlSquadAt = 0;
   btlPetIn = false;
   if (maxCount > TRAINER_TEAM_MAX) maxCount = TRAINER_TEAM_MAX;
-  if (!pet.isEgg() && btlSquadN < maxCount && (mask & 1)) {
+  // pet.canBattle() even when the mask says otherwise: the mask is UI state
+  // that can be stale (the pet fell asleep or tired with the picker open), and
+  // this is the last door before a fight.
+  if (!pet.isEgg() && btlSquadN < maxCount && (mask & 1) && pet.canBattle()) {
     Pet tmp = pet;                       // a copy: the real pet is untouched
     if (maxLvl && tmp.level() > maxLvl)
       tmp.ageMinutes = (uint32_t)(maxLvl - 1) * MINUTES_PER_LEVEL;
@@ -3676,8 +3684,16 @@ uint8_t squadCap(uint8_t idx, bool hard) {
 
 // A fight against another device. The squads are already exchanged; the host
 // owns resolution and the guest renders what it is sent.
+// Whether the live pet was offered to the peer and can no longer pay for the
+// fight -- energy drains while pairing, and a rematch costs again. The squad is
+// already promised, so the fight is refused rather than started without it.
+bool lanPetBlocked() {
+  return lanPetIn && !pet.canBattle();
+}
+
 void startLinkBattle() {
   if (!lan.mineN || !lan.theirsN) return;
+  if (lanPetBlocked()) return;
   // Rebuilt from lan.mine, NOT from squadMask. What we fight with has to be
   // exactly what the peer was told we have -- rebuilding from the party would
   // silently diverge if anything changed between offering and starting.
@@ -3687,6 +3703,10 @@ void startLinkBattle() {
     linkMonTo(btlSquad[btlSquadN++], lan.mine[i]);
   if (!btlSquadN) return;
   btlYou = btlSquad[0];
+  // Charged HERE, when the fight is really on -- not at the offer, where a
+  // pairing that never completes would have taken the energy for nothing.
+  btlPetIn = lanPetIn;
+  if (lanPetIn) pet.payBattleEnergy();
   btlLink = true;
   btlLinkHost = lan.isHost;
   btlTrainer = -1;
@@ -3730,6 +3750,9 @@ void startTrainerBattle(uint8_t idx, bool hard) {
   // size cap on top, plus a smarter AI and better opposing IVs.
   buildSquad(top, hard ? tr.count : TRAINER_TEAM_MAX, squadMask);
   if (!btlSquadN) return;
+  // The fight is on: the live pet pays for it, once, if it came. Banked
+  // members are retired and fight for free.
+  if (btlPetIn) pet.payBattleEnergy();
   btlTrainer = (int8_t)idx;
   btlHard = hard;
   btlLink = false;
@@ -3758,6 +3781,8 @@ void startBattle(int16_t dex, uint8_t lvl) {
   if (dex < 1 || dex > DEX_COUNT) return;
   buildSquad(0, TRAINER_TEAM_MAX, 0xFFFF);
   if (!btlSquadN) return;
+  // A debug entry, so it charges no energy -- but buildSquad() still leaves out
+  // a live pet that could not fight.
   // Not a trainer and not a link fight. Without this the previous gym fight's
   // btlTrainer survived, and winning a console BATTLE awarded that leader's
   // badge -- whether or not it had actually been beaten.
@@ -4014,8 +4039,9 @@ static void btlSettleFaints() {
   // trains the creature that fought for it -- so a leader you can already
   // beat is worth returning to. It goes to the LIVE pet only: banked members
   // are frozen at the level and training they were banked with, and battling
-  // already costs the live pet energy, which is what rate-limits the grind
-  // without needing a cooldown.
+  // already cost the live pet BATTLE_ENERGY_COST when the fight started
+  // (startTrainerBattle), which is what rate-limits the grind without needing
+  // a cooldown.
   if (btlWon && btlTrainer >= 0 && btlPetIn) {
     // Later leaders are worth more, and hard mode is worth roughly double.
     uint8_t amt = (btlHard ? 6 + random(5) : 3 + random(3)) + btlTrainer / 3;
@@ -4781,17 +4807,38 @@ bool pickExists(uint8_t n) {
   if (n == 0) return !pet.isEgg();
   return n <= PARTY_SLOTS && !party.slots[n - 1].empty();
 }
+// Whether candidate n may be put in the squad. Banked members always may; the
+// live pet asks pet.canBattle(), the same answer buildSquad() gets.
+bool pickEligible(uint8_t n) {
+  return pickExists(n) && (n != 0 || pet.canBattle());
+}
 uint8_t pickChosen() {
   uint8_t c = 0;
   for (uint8_t n = 0; n <= PARTY_SLOTS; n++)
-    if (pickExists(n) && (squadMask & (1 << n))) c++;
+    if (pickEligible(n) && (squadMask & (1 << n))) c++;
   return c;
+}
+// Why the live pet may not fight, in words, or nullptr if it may.
+const char *fightBlockText() {
+  switch (pet.battleBlock()) {
+    case FIGHT_ASLEEP: return T(S_FIGHT_ASLEEP);
+    case FIGHT_TIRED:  return T(S_FIGHT_TIRED);
+    default:           return nullptr;
+  }
 }
 uint8_t pickCandidates() {
   uint8_t c = 0;
   for (uint8_t n = 0; n <= PARTY_SLOTS; n++)
     if (pickExists(n)) c++;
   return c;
+}
+// What the FIGHT button says. When the live pet is the ONLY candidate and may
+// not fight, the button carries the reason: a greyed FIGHT that does nothing
+// is the silent refusal this replaces.
+const char *pickGoLabel() {
+  const char *why = fightBlockText();
+  if (why && pickExists(0) && pickCandidates() == 1) return why;
+  return T(S_FIGHT);
 }
 // Trims the selection to the first `cap` candidates. The default used to be
 // "everything", which with a live pet plus six banked is seven against a cap of
@@ -4800,11 +4847,12 @@ void pickDefault(uint8_t cap) {
   squadMask = 0;
   uint8_t taken = 0;
   for (uint8_t n = 0; n <= PARTY_SLOTS && taken < cap; n++)
-    if (pickExists(n)) { squadMask |= (1 << n); taken++; }
+    if (pickEligible(n)) { squadMask |= (1 << n); taken++; }
 }
 
 static void drawPickCell(uint8_t n, int x, int y, uint8_t capLvl) {
-  bool on = (squadMask & (1 << n)) != 0;
+  bool on = pickEligible(n) && (squadMask & (1 << n)) != 0;
+  const char *why = (n == 0) ? fightBlockText() : nullptr;
   int16_t dex; uint16_t lvl; const char *nm; bool shiny;
   if (n == 0) {
     dex = pet.speciesId; lvl = pet.level(); shiny = pet.shiny;
@@ -4829,12 +4877,19 @@ static void drawPickCell(uint8_t n, int x, int y, uint8_t capLvl) {
   gfx->print(l);
   // its typing is the whole reason you are on this screen
   const DexEntry &d = DEX_TBL[dex];
-  gfx->setTextColor(on ? d.accent : 0x8410);
-  gfx->setCursor(x + 54, y + 48);
-  gfx->print(typeName(d.type1));
-  if (d.type2 != T_NONE) {
-    gfx->setCursor(x + 54, y + 60);
-    gfx->print(typeName(d.type2));
+  if (why) {
+    // a live pet that cannot come says why, in place of a typing it cannot use
+    gfx->setTextColor(UI_BAR_BAD);
+    gfx->setCursor(x + 54, y + 48);
+    gfx->print(why);
+  } else {
+    gfx->setTextColor(on ? d.accent : 0x8410);
+    gfx->setCursor(x + 54, y + 48);
+    gfx->print(typeName(d.type1));
+    if (d.type2 != T_NONE) {
+      gfx->setCursor(x + 54, y + 60);
+      gfx->print(typeName(d.type2));
+    }
   }
   if (on) {
     gfx->fillCircle(x + PICK_CELL_W - 16, y + 16, 9, UI_BAR_OK);
@@ -4897,11 +4952,12 @@ void renderPick() {
   gfx->fillRoundRect(PICK_GO_X, PICK_GO_Y, PICK_BTN_W, PICK_BTN_H, 12,
                      ok ? UI_BAR_OK : UI_TRACK);
   gfx->drawRoundRect(PICK_GO_X, PICK_GO_Y, PICK_BTN_W, PICK_BTN_H, 12, UI_INK);
-  gfx->setTextColor(ok ? UI_BG_DAY : 0x8410);
+  const char *go = pickGoLabel();
+  gfx->setTextColor(ok ? UI_BG_DAY : (go != T(S_FIGHT) ? UI_BAR_BAD : 0x8410));
   gfx->setTextSize(2);
-  gfx->setCursor(PICK_GO_X + (PICK_BTN_W - (int)strlen(T(S_FIGHT)) * 12) / 2,
+  gfx->setCursor(PICK_GO_X + (PICK_BTN_W - (int)strlen(go) * 12) / 2,
                  PICK_GO_Y + 14);
-  gfx->print(T(S_FIGHT));
+  gfx->print(go);
   gfx->flush();
 }
 
@@ -4917,6 +4973,10 @@ void pickTap(int16_t x, int16_t y) {
   if (y >= PICK_GO_Y && y <= PICK_GO_Y + PICK_BTN_H &&
       x >= PICK_GO_X && x <= PICK_GO_X + PICK_BTN_W) {
     uint8_t cap = squadCap(pickTrainer, pickHard);
+    if (pickChosen() == 0 && pickGoLabel() != T(S_FIGHT)) {
+      sfxPlay(SFX_DENY);      // refused, and the button already says why
+      return;
+    }
     if (pickChosen() == 0 || pickChosen() > cap) return;   // GO stays inert
     sfxPlay(SFX_TAP);
     pickOpen = false;
@@ -4940,6 +5000,11 @@ void pickTap(int16_t x, int16_t y) {
     int cx0 = PICK_X(drawn), cy0 = PICK_Y(drawn);
     drawn++;
     if (x < cx0 || x > cx0 + PICK_CELL_W || y < cy0 || y > cy0 + PICK_CELL_H) continue;
+    if (!pickEligible(n)) {   // the cell says why; the tap does nothing else
+      squadMask &= ~(1 << n);
+      sfxPlay(SFX_DENY);
+      return;
+    }
     squadMask ^= (1 << n);
     sfxPlay(SFX_TAP);
     return;
@@ -5000,11 +5065,16 @@ void renderLan() {
     gfx->setTextSize(2);
     gfx->setCursor(CX - (int)strlen(l) * 6, 150);
     gfx->print(l);
-    gfx->fillRoundRect(120, 220, 226, 56, 12, UI_BAR_OK);
+    // The live pet was offered and can no longer pay for the fight: the button
+    // says why instead of FIGHT, and refuses.
+    const char *go = lanPetBlocked() ? fightBlockText() : T(S_FIGHT);
+    if (!go) go = T(S_FIGHT);
+    bool can = !lanPetBlocked();
+    gfx->fillRoundRect(120, 220, 226, 56, 12, can ? UI_BAR_OK : UI_TRACK);
     gfx->drawRoundRect(120, 220, 226, 56, 12, UI_INK);
-    gfx->setTextColor(UI_BG_DAY);
-    gfx->setCursor(CX - strlen(T(S_FIGHT)) * 6, 240);
-    gfx->print(T(S_FIGHT));
+    gfx->setTextColor(can ? UI_BG_DAY : UI_BAR_BAD);
+    gfx->setCursor(CX - strlen(go) * 6, 240);
+    gfx->print(go);
   } else if (lan.state == LINK_DONE) {
     // Both squads are still in hand on both devices, so going again costs one
     // packet -- there is nothing to re-exchange.
@@ -5014,12 +5084,14 @@ void renderLan() {
       gfx->setCursor(CX - (int)strlen(lan.peerName) * 6, 140);
       gfx->print(lan.peerName);
     }
-    gfx->fillRoundRect(120, 220, 226, 56, 12, UI_BG_DAY);
+    const char *again = lanPetBlocked() ? fightBlockText() : T(S_LAN_REMATCH);
+    if (!again) again = T(S_LAN_REMATCH);
+    gfx->fillRoundRect(120, 220, 226, 56, 12, lanPetBlocked() ? UI_TRACK : UI_BG_DAY);
     gfx->drawRoundRect(120, 220, 226, 56, 12, UI_INK);
-    gfx->setTextColor(UI_INK);
+    gfx->setTextColor(lanPetBlocked() ? UI_BAR_BAD : UI_INK);
     gfx->setTextSize(2);
-    gfx->setCursor(CX - strlen(T(S_LAN_REMATCH)) * 6, 240);
-    gfx->print(T(S_LAN_REMATCH));
+    gfx->setCursor(CX - strlen(again) * 6, 240);
+    gfx->print(again);
   }
   gfx->setTextColor(UI_TRACK);
   gfx->setTextSize(2);
@@ -5071,7 +5143,8 @@ static void lanOffer(bool host) {
   // begin() keeps our name for the hello; peerName stays empty until the
   // peer's own hello fills it.
   lan.begin(host, pet.trainerName);
-  buildSquad(0, TRAINER_TEAM_MAX, squadMask);
+  buildSquad(0, TRAINER_TEAM_MAX, squadMask);   // asks pet.canBattle() itself
+  lanPetIn = btlPetIn;   // nothing is charged until startLinkBattle()
   for (uint8_t i = 0; i < btlSquadN; i++) {
     LinkMon m;
     linkMonFrom(m, btlSquad[i]);
@@ -5106,6 +5179,7 @@ void lanTap(int16_t x, int16_t y) {
     }
   } else if (lan.state == LINK_READY) {
     if (x >= 120 && x <= 346 && y >= 220 && y <= 276) {
+      if (lanPetBlocked()) { sfxPlay(SFX_DENY); return; }   // the button says why
       sfxPlay(SFX_TAP);
       lanOpen = false;
       startLinkBattle();
@@ -5113,6 +5187,8 @@ void lanTap(int16_t x, int16_t y) {
     }
   } else if (lan.state == LINK_DONE) {
     if (x >= 120 && x <= 346 && y >= 220 && y <= 276) {
+      // do not ask the peer for a fight we could not start
+      if (lanPetBlocked()) { sfxPlay(SFX_DENY); return; }
       sfxPlay(SFX_TAP);
       lan.sendRematch();      // both sides go back to READY and tap FIGHT
       return;
