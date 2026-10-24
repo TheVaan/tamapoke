@@ -50,6 +50,21 @@ enum : uint16_t {
 
 uint8_t moveUnlockLevel(int16_t dex, uint8_t idx);
 
+// Is a deadline taken from millis() still in the future? 0 means "not set".
+//
+// NEVER `millis() < until` or `now > until`. millis() wraps after 49.7 days of
+// uptime, and a device left on USB reaches that. Past the wrap millis() is
+// small again while every deadline set in the days before it is still a huge
+// number -- so `millis() < eatUntil` read TRUE again, for weeks: the creature
+// "eating" forever (which also kept the panel from ever dimming), the feed
+// menu and the evolve flash stuck on screen, the pet frozen mid-behaviour. The
+// signed difference is right across the wrap. It is only right for 24.8 days
+// either side of the deadline, so expired timers are also cleared back to 0
+// (Pet::update() does its own; the sketch's are zeroed where they expire).
+inline bool timerActive(uint32_t until, uint32_t now) {
+  return until && (int32_t)(until - now) > 0;
+}
+
 // ---------------------------------------------------------------------------
 // Which regions have their sprite pack on the microSD.
 //
@@ -314,12 +329,12 @@ public:
 
   bool isEgg() const { return speciesId < 0; }
   uint8_t eggCracks() const { return eggTaps; }
-  bool eating() const { return millis() < eatUntil; }
-  bool showHeart() const { return millis() < heartUntil; }
-  bool evolving() const { return millis() < evolveUntil; }
+  bool eating() const { return timerActive(eatUntil, millis()); }
+  bool showHeart() const { return timerActive(heartUntil, millis()); }
+  bool evolving() const { return timerActive(evolveUntil, millis()); }
   float evolveT() const {     // progreso de la animacion de evolucion 0..1
     uint32_t n = millis();
-    uint32_t left = evolveUntil > n ? evolveUntil - n : 0;
+    uint32_t left = timerActive(evolveUntil, n) ? evolveUntil - n : 0;
     return 1.0f - (float)left / (float)EVOLVE_ANIM_MS;
   }
   bool canEvolveNow() const;  // condiciones de evolucion cumplidas (lista)
@@ -394,15 +409,15 @@ public:
   float ceremonyT() const {
     if (ceremony == CER_NONE) return 0.0f;
     uint32_t n = millis();
-    uint32_t left = ceremonyUntil > n ? ceremonyUntil - n : 0;
+    uint32_t left = timerActive(ceremonyUntil, n) ? ceremonyUntil - n : 0;
     return 1.0f - (float)left / (float)CEREMONY_MS;
   }
 
   // racha / vinculo / medallas / nombre
   void rename(const char *name);
   bool hasMedal(uint16_t m) const { return medals & m; }
-  bool showMedal() const { return millis() < medalUntil; }
-  bool showMilestone() const { return millis() < milestoneUntil; }
+  bool showMedal() const { return timerActive(medalUntil, millis()); }
+  bool showMilestone() const { return timerActive(milestoneUntil, millis()); }
   int careBonus() const;  // mejora del huevo por racha + vinculo
 
   // guardado periodico diferido: tick() marca pendiente y el loop lo vuelca
