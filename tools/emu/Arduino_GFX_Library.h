@@ -58,7 +58,9 @@ public:
 
   void fillScreen(uint16_t c) { std::fill(fb.begin(), fb.end(), c); }
 
+  uint32_t fillCalls = 0;   // how many fillRect calls reached the canvas
   void fillRect(int x, int y, int w, int h, uint16_t c) {
+    fillCalls++;
     if (w < 0) { x += w; w = -w; }
     if (h < 0) { y += h; h = -h; }
     for (int j = 0; j < h; j++)

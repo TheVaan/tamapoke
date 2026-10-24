@@ -125,6 +125,29 @@ public:
 // Framebuffer completo en PSRAM: dibujamos todo y hacemos flush() (sin parpadeo)
 Arduino_Canvas *gfx = new FrameCanvas(LCD_WIDTH, LCD_HEIGHT, panel);
 
+// Sprites are drawn a pixel at a time, scaled, as s x s blocks. Neighbouring
+// pixels of one colour are common -- flat pixel art -- and each fillRect pays
+// the library's call, clipping and setup on top of the pixels themselves, so
+// a run of them along a row goes out as ONE fillRect instead. The covered
+// pixels are exactly the union of the blocks, so the picture is identical.
+// Feed it each opaque pixel of a row in order; a gap or a new colour ends the
+// run; end() draws whatever is left. One per row.
+struct RowRuns {
+  int x0, y, s;                  // where pixel 0 of this row lands, and the scale
+  int start = -1, len = 0;
+  uint16_t col = 0;
+  RowRuns(int x0_, int y_, int s_) : x0(x0_), y(y_), s(s_) {}
+  void put(int c, uint16_t k) {
+    if (len && c == start + len && k == col) { len++; return; }
+    end();
+    start = c; len = 1; col = k;
+  }
+  void end() {
+    if (len) gfx->fillRect(x0 + start * s, y, len * s, s, col);
+    len = 0;
+  }
+};
+
 TouchDrvCST92xx touch;
 Pet pet;
 
@@ -4541,14 +4564,16 @@ void renderWin() {
     }
     const BadgeArt *a = badgeArtFor(btlRegion, btlTrainer);
     if (a) {
-      for (int r = 0; r < BADGE_PX; r++)
+      // 3x, so it reads as a prize rather than a list entry
+      for (int r = 0; r < BADGE_PX; r++) {
+        RowRuns run(CX - BADGE_PX * 3 / 2, by - BADGE_PX * 3 / 2 + r * 3, 3);
         for (int c = 0; c < BADGE_PX; c++) {
           uint8_t v = a->idx[r * BADGE_PX + c];
           if (v == 0xFF) continue;
-          // 3x, so it reads as a prize rather than a list entry
-          gfx->fillRect(CX - BADGE_PX * 3 / 2 + c * 3, by - BADGE_PX * 3 / 2 + r * 3,
-                        3, 3, a->pal[v]);
+          run.put(c, a->pal[v]);
         }
+        run.end();
+      }
     } else {
       // This region has no badge art. Say so with a plain medal in the leader's
       // type colour rather than borrowing another region's badge.
@@ -4962,12 +4987,15 @@ static void renderPlayerBadges() {
       gfx->drawCircle(bx, by, 14, UI_INK);
       continue;
     }
-    for (int r = 0; r < BADGE_PX; r++)
+    for (int r = 0; r < BADGE_PX; r++) {
+      RowRuns run(bx - BADGE_PX / 2, by - BADGE_PX / 2 + r, 1);
       for (int c = 0; c < BADGE_PX; c++) {
         uint8_t v = a->idx[r * BADGE_PX + c];
         if (v == 0xFF) continue;
-        gfx->fillRect(bx - BADGE_PX / 2 + c, by - BADGE_PX / 2 + r, 1, 1, a->pal[v]);
+        run.put(c, a->pal[v]);
       }
+      run.end();
+    }
   }
   char l[32];
   gfx->setTextColor(UI_INK);
@@ -6430,14 +6458,16 @@ void drawThumb(const uint8_t *b, int x, int y, int s, bool sil) {
   int ox = x + (GAL_CELL - w * s) / 2;
   int oy = y + (GAL_CELL - h * s) / 2;
   for (int r = 0; r < h; r++) {
+    RowRuns run(ox, oy + r * s, s);
     for (int c = 0; c < w; c++) {
       uint8_t idx = d[r * w + c];
       // idx >= n also skips an index past the palette, which only a damaged
       // file has and which would read beyond this species' blob
       if (idx == 0xFF || idx >= n) continue;
       uint16_t col = sil ? INK_K : (uint16_t)(pal[idx * 2] | (pal[idx * 2 + 1] << 8));
-      gfx->fillRect(ox + c * s, oy + r * s, s, s, col);
+      run.put(c, col);
     }
+    run.end();
   }
 }
 
@@ -6972,11 +7002,13 @@ void drawPmdActM(PmdMon &m, uint8_t actId, int cx, int groundY, uint32_t t, bool
   int x0 = cx - a.w * s / 2, y0 = groundY - (a.base ? a.base : a.h) * s;
   for (int r = 0; r < a.h; r++) {
     const uint8_t *row = fr + r * a.w;
+    RowRuns run(x0, y0 + r * s, s);
     for (int c = 0; c < a.w; c++) {
       uint8_t idx = row[c];
       if (idx == 0xFF) continue;
-      gfx->fillRect(x0 + c * s, y0 + r * s, s, s, sil ? INK_K : m.pal[idx]);
+      run.put(c, sil ? INK_K : m.pal[idx]);
     }
+    run.end();
   }
 }
 void drawPmdAct(uint8_t actId, int cx, int groundY, uint32_t t, bool loop, bool sil, uint8_t maxS) {
@@ -7168,20 +7200,25 @@ const char *statusMsg() {
 // An 8bpp indexed avatar, same shape as the badge art: 0xFF is transparent.
 void drawAvatar(uint8_t which, int x, int y, int s) {
   const AvatarArt &a = AVATARS[which % AVATAR_COUNT];
-  for (int r = 0; r < AVATAR_PX; r++)
+  for (int r = 0; r < AVATAR_PX; r++) {
+    RowRuns run(x, y + r * s, s);
     for (int c = 0; c < AVATAR_PX; c++) {
       uint8_t v = a.idx[r * AVATAR_PX + c];
       if (v == 0xFF) continue;
-      gfx->fillRect(x + c * s, y + r * s, s, s, a.pal[v]);
+      run.put(c, a.pal[v]);
     }
+    run.end();
+  }
 }
 
 void drawMap(const char *const *map, int n, int x, int y, int s, bool silhouette) {
   for (int r = 0; r < n; r++) {
+    RowRuns run(x, y + r * s, s);
     for (int c = 0; c < n; c++) {
       char ch = map[r][c];
       if (ch == '.') continue;
-      gfx->fillRect(x + c * s, y + r * s, s, s, silhouette ? INK_K : spriteColor(ch));
+      run.put(c, silhouette ? INK_K : spriteColor(ch));
     }
+    run.end();
   }
 }
