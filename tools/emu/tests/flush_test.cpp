@@ -26,6 +26,7 @@ extern uint8_t cardPage;
 extern uint8_t partyDetail, boxDetail;
 extern bool boxOpen, releaseConfirm;
 extern Party party;
+extern uint8_t sdAsk;   // the unreadable-SD dialog: 1 ask, 2 formatting, 3 ok, 4 failed
 void startBattle(int16_t dex, uint8_t lvl);
 
 static int bad = 0;
@@ -34,6 +35,7 @@ static void clearAll(){
   trainOpen=movePickOpen=battleOpen=gymOpen=playerOpen=false;
   boxOpen=releaseConfirm=false;
   partyDetail=boxDetail=0;
+  sdAsk=0;
 }
 static void check(const char *name){
   gfx->frameReady = false;
@@ -84,6 +86,9 @@ int main(){
   clearAll(); partyOpen=true; partyDetail=1; releaseConfirm=true;  check("partyconfirm");
   clearAll(); partyOpen=true; boxOpen=true; boxDetail=1;           check("boxsheet");
   clearAll(); partyOpen=true; boxOpen=true; boxDetail=1; releaseConfirm=true; check("boxconfirm");
+  // every state of the SD dialog, drawn over a game that is fully set up
+  // behind it -- it must win and it must flush in each
+  for (uint8_t k=1;k<=4;k++){ clearAll(); sdAsk=k; char n[16]; snprintf(n,sizeof(n),"sdcard%u",k); check(n); }
 
   clearAll();                       crumbIs("main");
   clearAll(); trainOpen=true;       crumbIs("train");
@@ -95,6 +100,7 @@ int main(){
   clearAll(); clockOpen=true;       crumbIs("clock");
   clearAll(); cardOpen=true;        crumbIs("card");
   clearAll(); startBattle(9,50);    crumbIs("battle");
+  clearAll(); sdAsk=1; menuOpen=true; crumbIs("sdcard");
   clearAll();
 
   printf("%s\n", bad ? "FAILURES" : "every screen flushes");

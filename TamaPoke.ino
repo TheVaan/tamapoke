@@ -211,9 +211,39 @@ enum : uint8_t {
   SCR_STARTER = 0, SCR_REGION, SCR_GALLERY, SCR_DEXPICK, SCR_MOVEPICK, SCR_BOX,
   SCR_PARTY, SCR_KEYBOARD, SCR_CARD, SCR_PLAYER, SCR_CLOCK, SCR_GYM, SCR_GYMPICK,
   SCR_LAN, SCR_PICK, SCR_BATTLE, SCR_WIN, SCR_LEARN, SCR_TRAIN, SCR_MENU,
-  SCR_GAME, SCR_MAIN, SCR_COUNT
+  SCR_GAME, SCR_MAIN,
+  // Appended, not inserted: the crash breadcrumb stores this index in RTC
+  // memory, and inserting would renumber every screen after it.
+  SCR_SDCARD,
+  SCR_COUNT
 };
 extern const char *const SCREEN_NAME[SCR_COUNT];   // const is internal linkage in C++
+
+// ---------- the unreadable SD card ----------
+// A card answered at boot but its filesystem would not mount. It used to be
+// formatted on the spot, without a word; now the player is asked, because
+// formatting erases whatever was on it. Modal and FIRST in uiCurrentScreen():
+// it is a boot-time question, it decides what gRegionArt says before the
+// first-boot region chooser reads it, and nothing behind it may take a tap.
+// Not persisted: CANCEL plays on without sprites and the question comes back
+// on the next boot, which is the harmless direction.
+enum : uint8_t { SDASK_NONE = 0, SDASK_ASK, SDASK_BUSY, SDASK_OK, SDASK_FAIL };
+uint8_t sdAsk = SDASK_NONE;
+uint32_t sdAskUntil = 0;     // the result page closes itself at this millis()
+// CANCEL sits above FORMAT, nearer the middle of the panel where a thumb lands;
+// the irreversible button has to be aimed for. The dead band between them is
+// 28 px and belongs to neither, and a tap outside both does nothing at all.
+#define SDASK_BTN_X 93
+#define SDASK_BTN_W 280
+#define SDASK_BTN_H 56
+#define SDASK_CANCEL_Y 262
+#define SDASK_FORMAT_Y 346
+static_assert(SDASK_FORMAT_Y >= SDASK_CANCEL_Y + SDASK_BTN_H + 24,
+              "FORMAT erases the card: it needs a real dead band above it");
+void renderSdAsk();
+void sdAskTap(int16_t x, int16_t y);
+void sdMountedLoad();
+void render();   // sdAskTap() draws the "formatting" frame before it blocks
 
 // Declared HERE, above every use. tools/emu/build.sh generates a proto.h with
 // every prototype at the top, so the emulator compiled these happily while
@@ -236,7 +266,7 @@ const char *const SCREEN_NAME[SCR_COUNT] = {
   "starter", "region", "gallery", "dexpick", "movepick", "box",
   "party", "keyboard", "card", "player", "clock", "gym", "gympick",
   "lan", "pick", "battle", "win", "learn", "train", "menu",
-  "minigame", "main"
+  "minigame", "main", "sdcard"
 };
 
 // Badge art for a region, or nullptr when that region has none yet.
@@ -716,7 +746,8 @@ void setup() {
   party.begin();
   pet.begin();
   sdBegin();
-  thumbs.load();
+  if (sdNeedsFormat) sdAsk = SDASK_ASK;   // a card is there but unreadable: ask
+  sdMountedLoad();
 
   // reloj real: aplica el tiempo que estuvo apagado
   rtcBegin();
@@ -787,6 +818,9 @@ void loop() {
   // minutes downloading stayed greyed out reading NEEDS PACK until they rebooted --
   // indistinguishable, from the player's side, from the download having failed.
   // Quietly, because the host is still parsing this serial stream.
+  // the format result page closes itself; a tap closes it sooner
+  if (sdAsk >= SDASK_OK && (int32_t)(now - sdAskUntil) >= 0) sdAsk = SDASK_NONE;
+
   if (sdArtDirty) {
     sdArtDirty = false;
     sdScanRegionArt(false);
@@ -1233,6 +1267,7 @@ void onSwipeV(int dir) {
   switch (uiCurrentScreen()) {
     case SCR_REGION:
     case SCR_STARTER: return;     // bloqueado durante la eleccion de inicial
+    case SCR_SDCARD: return;      // modal: only its two buttons answer
     case SCR_DEXPICK:
     case SCR_GYMPICK: return;     // on the chooser, vertical does nothing: pick a row
     case SCR_MENU: menuOpen = false; return;   // any swipe closes the menu
@@ -1605,6 +1640,7 @@ void onSwipe(int dir) {
   switch (uiCurrentScreen()) {
     case SCR_REGION:
     case SCR_STARTER: return;     // bloqueado durante la eleccion de inicial
+    case SCR_SDCARD: return;      // modal: only its two buttons answer
     case SCR_DEXPICK:
     case SCR_GYMPICK: return;     // rpickSwipe() above owns these
     case SCR_MENU: menuOpen = false; return;   // any swipe closes the menu
@@ -1704,6 +1740,7 @@ void onSwipe(int dir) {
 
 void onTap(int16_t x, int16_t y) {
   switch (uiCurrentScreen()) {
+    case SCR_SDCARD: sdAskTap(x, y); return;
     case SCR_REGION:
     case SCR_STARTER: {
       if (!starterRegionDone) {
@@ -2206,6 +2243,7 @@ RTC_NOINIT_ATTR uint32_t gCrumbHeap;
 // the card underneath. The order here is render()'s, because what is DRAWN is
 // what the player is pressing.
 uint8_t uiCurrentScreen() {
+  if (sdAsk) return SCR_SDCARD;   // boot-time and modal: ahead of the first-boot flow
   if (pet.awaitingStarter()) return starterRegionDone ? SCR_STARTER : SCR_REGION;
   if (galleryOpen) return galleryPick ? SCR_DEXPICK : SCR_GALLERY;
   if (movePickOpen) return SCR_MOVEPICK;
@@ -2287,6 +2325,93 @@ void bootReportAgain() {
   Serial.println();
 }
 
+// Everything the sketch loads once a card is mounted. setup() and the format
+// path both call THIS, so a card formatted at boot ends up exactly like one
+// that mounted by itself -- two copies of this list is how one drifts.
+void sdMountedLoad() {
+  thumbs.load();
+  sdDirty = true;   // ensureMon() retries the creature's sprite off the card
+}
+
+// The two buttons' hit areas, so a test can hold them to UI_TAP_MIN and prove
+// the dead band between them without restating the numbers.
+void sdAskRects(int *x0, int *x1, int *cTop, int *cBot, int *fTop, int *fBot) {
+  *x0 = SDASK_BTN_X;
+  *x1 = SDASK_BTN_X + SDASK_BTN_W;
+  *cTop = SDASK_CANCEL_Y;
+  *cBot = SDASK_CANCEL_Y + SDASK_BTN_H;
+  *fTop = SDASK_FORMAT_Y;
+  *fBot = SDASK_FORMAT_Y + SDASK_BTN_H;
+}
+
+// One centred line, dropping to the small font when a translation is too wide
+// for the round panel at this height.
+static void sdAskLine(const char *s, int y, uint16_t col) {
+  int n = (int)strlen(s);
+  int size = (n * 12 <= 400) ? 2 : 1;
+  gfx->setTextSize(size);
+  gfx->setTextColor(col);
+  gfx->setCursor(CX - n * 3 * size, y);
+  gfx->print(s);
+}
+
+static void sdAskButton(int y, const char *label, uint16_t fill, uint16_t ink) {
+  gfx->fillRoundRect(SDASK_BTN_X, y, SDASK_BTN_W, SDASK_BTN_H, 12, fill);
+  gfx->setTextSize(2);
+  gfx->setTextColor(ink);
+  gfx->setCursor(CX - (int)strlen(label) * 6, y + SDASK_BTN_H / 2 - 8);
+  gfx->print(label);
+}
+
+void renderSdAsk() {
+  gfx->fillScreen(RGB565_BLACK);
+  gfx->fillCircle(CX, CY, 231, UI_BG_DAY);
+  if (sdAsk == SDASK_ASK) {
+    sdAskLine(T(S_SD_BAD), 110, UI_INK);
+    sdAskLine(T(S_SD_BAD_WHY), 158, UI_INK);
+    // what it costs, on screen BEFORE the tap, in the warning colour
+    sdAskLine(T(S_SD_BAD_LOSS), 204, UI_BAR_BAD);
+    sdAskButton(SDASK_CANCEL_Y, T(S_SD_CANCEL), UI_TRACK, UI_INK);
+    sdAskButton(SDASK_FORMAT_Y, T(S_SD_FORMAT), UI_BAR_BAD, UI_WHITE);
+  } else if (sdAsk == SDASK_BUSY) {
+    sdAskLine(T(S_SD_FORMATTING), 200, UI_INK);
+    sdAskLine(T(S_SD_KEEP_IN), 244, UI_BAR_BAD);
+  } else {
+    bool ok = (sdAsk == SDASK_OK);
+    sdAskLine(ok ? T(S_SD_READY) : T(S_SD_FAILED), 200, ok ? UI_INK : UI_BAR_BAD);
+    sdAskLine(ok ? T(S_SD_READY_SUB) : T(S_SD_FAILED_SUB), 244, UI_INK);
+  }
+  gfx->flush();
+}
+
+void sdAskTap(int16_t x, int16_t y) {
+  if (sdAsk >= SDASK_OK) { sdAsk = SDASK_NONE; return; }   // result page: any tap closes it
+  if (sdAsk != SDASK_ASK) return;
+  // A miss does NOTHING -- not even close the question. One of these two
+  // buttons erases a card, so the only way past them is to press one.
+  if (x < SDASK_BTN_X || x > SDASK_BTN_X + SDASK_BTN_W) return;
+  if (y >= SDASK_CANCEL_Y && y < SDASK_CANCEL_Y + SDASK_BTN_H) {
+    sdAsk = SDASK_NONE;      // the no-SD path; the question returns next boot
+    Serial.println("SD: format declined, playing without sprites");
+    sfxPlay(SFX_TAP);
+    return;
+  }
+  if (y >= SDASK_FORMAT_Y && y < SDASK_FORMAT_Y + SDASK_BTN_H) {
+    sfxPlay(SFX_TAP);
+    sdAsk = SDASK_BUSY;
+    // Drawn and flushed BEFORE the call, which blocks the loop for as long as
+    // the card takes. Without this the panel would sit on the question with
+    // its FORMAT button apparently dead, inviting the card to be pulled.
+    render();
+    bool ok = sdFormat();
+    if (ok) sdMountedLoad();
+    sdAsk = ok ? SDASK_OK : SDASK_FAIL;
+    sdAskUntil = millis() + 4000;
+    lastInteract = millis();   // a long format must not come back to a dimmed panel
+    return;
+  }
+}
+
 void render() {
   crumbDrop();   // so a crash can name the screen it happened on
   switch (uiCurrentScreen()) {
@@ -2322,6 +2447,7 @@ void render() {
     case SCR_GYM: renderGyms(); return;
     case SCR_PLAYER: renderPlayer(); return;
     case SCR_LEARN: renderLearn(); return;
+    case SCR_SDCARD: renderSdAsk(); return;
     case SCR_CARD: renderCard(); return;
     default: break;   // SCR_MAIN, and SCR_MENU which is drawn over it
   }
@@ -5706,7 +5832,9 @@ void drawThumb(const uint8_t *b, int x, int y, int s, bool sil) {
   for (int r = 0; r < h; r++) {
     for (int c = 0; c < w; c++) {
       uint8_t idx = d[r * w + c];
-      if (idx == 0xFF) continue;
+      // idx >= n also skips an index past the palette, which only a damaged
+      // file has and which would read beyond this species' blob
+      if (idx == 0xFF || idx >= n) continue;
       uint16_t col = sil ? INK_K : (uint16_t)(pal[idx * 2] | (pal[idx * 2 + 1] << 8));
       gfx->fillRect(ox + c * s, oy + r * s, s, s, col);
     }
@@ -6186,6 +6314,9 @@ uint32_t pmdActTotalMs(const PmdAct &a) {
 }
 
 uint8_t pmdFrameAt(const PmdAct &a, uint32_t t, bool loop) {
+  // No frames, or every duration 0: the walk below would never consume t and
+  // would spin forever on the loop task, freezing the panel for good.
+  if (!a.frames || !pmdActTimed(a)) return 0;
   uint32_t total = pmdActTotalMs(a);
   if (!loop && t >= total) return a.frames - 1;
   t %= total;

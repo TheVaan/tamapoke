@@ -130,6 +130,18 @@ enum StrId : uint8_t {
   S_RELEASE_GONE,   // ...and the warning under it: this one does not come back
   S_BOX_TAKE,       // box detail sheet: move this creature into the party
   S_RETIRE_GONE,    // retire confirm: an early retire is not banked either
+  // A card that answered but could not be read: asked at boot, never silently.
+  S_SD_BAD,         // title: the SD card could not be read
+  S_SD_BAD_WHY,     // ...it has to be formatted to be used
+  S_SD_BAD_LOSS,    // ...and ALL DATA ON IT WILL BE LOST
+  S_SD_FORMAT,      // button: erase it
+  S_SD_CANCEL,      // button: play on without sprites
+  S_SD_FORMATTING,  // shown while the (blocking, possibly long) format runs
+  S_SD_KEEP_IN,     // ...do not remove the card
+  S_SD_READY,       // result: formatted and mounted
+  S_SD_READY_SUB,   // ...it is empty, so the sprite packs go on next
+  S_SD_FAILED,      // result: the format did not work
+  S_SD_FAILED_SUB,  // ...the game carries on without sprites
   STR_COUNT
 };
 
