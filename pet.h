@@ -383,7 +383,7 @@ public:
   // primera partida: el jugador elige inicial (Bulbasaur/Charmander/Squirtle)
   bool awaitingStarter() const { return starterPick; }
   void chooseStarter(int16_t dex) { eggTarget = dex; starterPick = false; save(); }
-  void factoryReset() { prefs.clear(); }  // borra la NVS (test: comando serie WIPE)
+  void factoryReset() { prefs.clear(); dexChanged(); }  // borra la NVS (test: comando serie WIPE)
   void dbgRunawayReady() { fullness = joy = energy = hygiene = 0; neglectTicks = RUNAWAY_TICKS; }  // test
   // test: force what the egg holds and hatch it now (serial command EGG).
   // The legendary/shiny IV guarantees only fire inside hatch(), so without
@@ -413,7 +413,11 @@ public:
   bool isShinyRegistered(int16_t dex) const {
     return dex >= 1 && dex <= DEX_COUNT && (dexShinyReg[(dex - 1) >> 3] & (1 << ((dex - 1) & 7)));
   }
+  // Cached: it walks all DEX_COUNT bits and several screens ask every frame.
+  // registerSpecies(), begin()/load() and factoryReset() drop the cache; code
+  // that writes dexReg[] directly must call dexChanged() itself.
   uint16_t registeredCount() const;
+  void dexChanged() { regCountCache = -1; }
   bool lineHasUnregistered(int16_t base) const;
   uint8_t eggRarity() const;       // rareza del huevo actual (sin revelar especie)
   int16_t pickEggSpecies();        // publica para poder simular tiradas (EGGS)
@@ -515,6 +519,7 @@ private:
   uint8_t eggTaps = 0;
   uint8_t mistakeCooldown = 0;
   uint8_t ticksSinceSave = 0;
+  mutable int16_t regCountCache = -1;   // registeredCount(), -1 = recount
   bool pendingSave = false;     // guardado periodico pendiente de volcar
   // The three answers to the evolve/farewell offers. Per CREATURE: newEgg()
   // clears them, or one creature's "keep form" at level 30 would hide the next
