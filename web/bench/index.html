@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TamaPoke · Test bench</title>
+<style>
+  :root { --bg:#f2efe1; --ink:#2a2a36; --muted:#6b6b76; --accent:#4f93c4; --ok:#3f9f52; --bad:#d6452f;
+          --warn:#c98a12; --track:#d8d2bd; --card:#fff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, sans-serif; background:var(--bg);
+         color:var(--ink); line-height:1.55; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.2rem; margin: 2.2rem 0 .5rem; }
+  .sub, .note { color:var(--muted); }
+  .note { font-size:.9rem; }
+  .step { background:var(--card); border:1px solid var(--track); border-radius:14px; padding:1.1rem 1.3rem; margin: .8rem 0; }
+  .warnbox { border-left:4px solid var(--bad); background:#fff6f4; }
+  .num { display:inline-flex; width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff;
+         align-items:center; justify-content:center; font-weight:600; margin-right:.5rem; font-size:.9rem; }
+  button { font: inherit; font-weight:500; padding:.55rem 1.1rem; border-radius:10px; border:1px solid var(--ink);
+           background:#fff; cursor:pointer; color:var(--ink); }
+  button:hover { background:var(--bg); }
+  button:disabled { opacity:.45; cursor:default; }
+  button.primary { background:var(--ink); color:#fff; }
+  .row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+  .pill { display:inline-block; padding:.1rem .6rem; border-radius:999px; font-size:.85rem; font-weight:600; }
+  .PASS { background:#e3f3e6; color:var(--ok); } .FAIL { background:#fbe5e1; color:var(--bad); }
+  .WARN { background:#fbf0d9; color:var(--warn); } .SKIP, .INFO { background:#ecebe4; color:var(--muted); }
+  .RUN { background:#e3eef7; color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; }
+  td, th { text-align:left; padding:.4rem .35rem; border-bottom:1px solid var(--track); vertical-align:top; }
+  td:first-child { white-space:nowrap; }
+  pre, textarea { font-family: ui-monospace, monospace; font-size:.8rem; }
+  #log { background:#1b1b25; color:#d8dcf0; border-radius:10px; padding:.7rem .9rem; max-height:240px;
+         overflow:auto; white-space:pre-wrap; margin:.6rem 0 0; }
+  textarea { width:100%; min-height:110px; border:1px solid var(--track); border-radius:8px; padding:.5rem; }
+  .check { display:flex; gap:.6rem; align-items:flex-start; padding:.45rem 0; border-bottom:1px solid var(--track); }
+  .check:last-child { border-bottom:0; }
+  .check select { font:inherit; }
+  .check .what { flex:1; }
+  svg { width:100%; height:180px; background:#fbfaf5; border:1px solid var(--track); border-radius:8px; }
+  code { background:#0001; padding:.1em .35em; border-radius:5px; }
+  .unsupported { display:none; color:var(--bad); font-weight:600; }
+  esp-web-install-button { display:inline-block; }
+  esp-web-install-button[install-unsupported] { display:none; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#17171f; --ink:#e6e6ee; --muted:#a0a0ad; --track:#33333f; --card:#20202a; }
+    button { background:#20202a; } button:hover { background:#2a2a36; }
+    button.primary { background:#e6e6ee; color:#17171f; }
+    .warnbox { background:#2b1d1b; } svg { background:#1c1c25; }
+    .PASS { background:#1f3324; } .FAIL { background:#3a1f1b; } .WARN { background:#3a2f17; }
+    .SKIP, .INFO { background:#2a2a33; } .RUN { background:#1d2a36; }
+    textarea { background:#1c1c25; color:var(--ink); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧪 TamaPoke test bench</h1>
+  <p class="sub">Installs the current test build on a real board and checks it over USB.
+     Chrome or Edge on a computer. <span id="build"></span></p>
+  <p class="unsupported" id="unsupported">⚠️ This browser has no Web Serial. Use Chrome or Edge on a computer.</p>
+
+  <!-- 1 -->
+  <h2><span class="num">1</span>Connect</h2>
+  <div class="step">
+    <div class="row">
+      <button id="connect" class="primary">🔌 Connect board</button>
+      <button id="disconnect" disabled>Disconnect</button>
+      <span id="status" class="note">not connected</span>
+    </div>
+    <p class="note">Board not listed? A board that has never run TamaPoke only shows up in
+      download mode: <b>hold BOOT → tap RESET → let go of BOOT</b>. Use a data cable.</p>
+  </div>
+
+  <!-- 2 -->
+  <h2><span class="num">2</span>Back up the save</h2>
+  <div class="step">
+    <p>Prints the whole save with <code>EXPORT</code> and keeps it here, so it can be put back
+       with one click. Do this <b>before</b> installing. Skip only on a board with nothing to lose.</p>
+    <div class="row">
+      <button id="backup" disabled>💾 Back up now</button>
+      <button id="dlbackup" disabled>Download backup</button>
+      <label class="note"><input type="checkbox" id="nosave"> nothing to lose on this board</label>
+    </div>
+    <details style="margin-top:.6rem"><summary class="note">Restore a backup</summary>
+      <p class="note">Paste an <code>EXPORT</code> block (or use the one taken above). The board
+        checks the whole block before writing anything, then restarts.</p>
+      <textarea id="restoreText" placeholder="# TamaPoke save ...&#10;IMPORT 54504B...&#10;IMPORT"></textarea>
+      <div class="row" style="margin-top:.5rem"><button id="restore" disabled>↩️ Restore this backup</button></div>
+    </details>
+  </div>
+
+  <!-- 3 -->
+  <h2><span class="num">3</span>Install the test build</h2>
+  <div class="step">
+    <p>Pick the pull request to test. Each one is its own firmware, built from that PR's branch.
+       The connection above is closed automatically while it flashes.</p>
+    <div class="row" style="margin-bottom:.6rem"><select id="buildPick" style="font:inherit;padding:.4rem;max-width:100%"></select></div>
+    <p class="note" id="buildInfo"></p>
+    <p class="note warnbox" style="padding:.5rem .8rem;border-radius:8px"><b>Leave "Erase device" unchecked.</b>
+       The firmware is written around the save, not over it. Ticking that box wipes the creature,
+       the Pokédex and the badges.</p>
+    <div class="row">
+      <span id="installGate" class="note">Back up first (step 2), or tick "nothing to lose".</span>
+      <span id="installWrap" style="display:none">
+        <esp-web-install-button manifest="" id="installer">
+          <button slot="activate" class="primary">⚡ Install test build</button>
+          <span slot="unsupported">Browser not supported (use Chrome/Edge).</span>
+          <span slot="not-allowed">Needs HTTPS.</span>
+        </esp-web-install-button>
+      </span>
+    </div>
+    <p class="note">When the installer says it is done, close its dialog and press <b>Connect</b> again.</p>
+  </div>
+
+  <!-- 4 -->
+  <h2><span class="num">4</span>Automatic tests</h2>
+  <div class="step">
+    <p>Runs over the serial console. The save test briefly starts a battle, changes one number,
+       restarts the board and puts the number back — nothing else is touched.</p>
+    <div class="row"><button id="runTests" disabled>▶️ Run tests</button>
+      <span id="testState" class="note"></span></div>
+    <table style="margin-top:.7rem"><thead><tr><th>Result</th><th>Test</th><th>Detail</th></tr></thead>
+      <tbody id="results"></tbody></table>
+  </div>
+
+  <!-- 5 -->
+  <h2><span class="num">5</span>Checks only a person can do</h2>
+  <div class="step" id="manual"></div>
+
+  <!-- 6 -->
+  <h2><span class="num">6</span>Soak test</h2>
+  <div class="step">
+    <p>Asks the board for <code>HEALTH</code> once a minute and keeps the numbers. Leave the tab open
+       (and the computer awake) for hours — a slow leak only shows as a trend.</p>
+    <div class="row">
+      <button id="soakStart" disabled>▶️ Start</button><button id="soakStop" disabled>⏹ Stop</button>
+      <button id="soakCsv" disabled>Download CSV</button>
+      <span id="soakState" class="note"></span>
+    </div>
+    <svg id="chart" viewBox="0 0 700 180" preserveAspectRatio="none" style="margin-top:.7rem"></svg>
+    <p class="note" id="soakLegend">heap (blue) and lowest heap (red), kB</p>
+  </div>
+
+  <!-- 7 -->
+  <h2><span class="num">7</span>Report</h2>
+  <div class="step">
+    <p>Everything above in one block. Copy it into the chat with Claude.</p>
+    <div class="row"><button id="mkReport">📝 Build report</button><button id="cpReport">Copy</button></div>
+    <textarea id="report" style="min-height:200px;margin-top:.6rem" readonly></textarea>
+  </div>
+
+  <h2>Console log</h2>
+  <pre id="log"></pre>
+</div>
+
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const LOGMAX = 4000;
+let logLines = [];
+function log(s) {
+  logLines.push(s); if (logLines.length > LOGMAX) logLines = logLines.slice(-LOGMAX);
+  const el = $('log'); el.textContent = logLines.slice(-300).join('\n'); el.scrollTop = el.scrollHeight;
+}
+
+// ---------------- serial ----------------
+// One reader loop owns the port and turns bytes into lines; commands queue up
+// behind one lock, so the soak test and a test run can never interleave.
+const S = { port: null, reader: null, writer: null, buf: '', lines: [], waiters: [], open: false, busy: Promise.resolve() };
+const enc = new TextEncoder(), dec = new TextDecoder();
+
+function setStatus(t) { $('status').textContent = t; }
+function setConnected(on) {
+  S.open = on;
+  $('connect').disabled = on; $('disconnect').disabled = !on;
+  for (const id of ['backup', 'runTests', 'soakStart', 'restore']) $(id).disabled = !on;
+  if (!on) $('soakStop').disabled = true;
+  setStatus(on ? 'connected' : 'not connected');
+}
+
+async function openPort(port) {
+  await port.open({ baudRate: 115200 });
+  // DTR/RTS low: on the ESP32-S3's USB serial, RTS high holds the chip in reset
+  // and DTR high with it selects download mode.
+  try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) {}
+  S.port = port; S.writer = port.writable.getWriter(); S.reader = port.readable.getReader();
+  S.buf = ''; setConnected(true); readLoop();
+}
+
+async function readLoop() {
+  const r = S.reader;
+  try {
+    while (true) {
+      const { value, done } = await r.read();
+      if (done) break;
+      S.buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = S.buf.indexOf('\n')) >= 0) {
+        const line = S.buf.slice(0, nl).replace(/\r$/, '');
+        S.buf = S.buf.slice(nl + 1);
+        log('< ' + line);
+        S.lines.push(line);
+        for (const w of [...S.waiters]) w(line);
+      }
+    }
+  } catch (e) { log('! read: ' + e.message); }
+  setConnected(false);
+}
+
+async function closePort() {
+  const p = S.port; if (!p) return;
+  try { await S.reader.cancel(); } catch (e) {}
+  try { S.reader.releaseLock(); } catch (e) {}
+  try { S.writer.releaseLock(); } catch (e) {}
+  try { await p.close(); } catch (e) {}
+  S.port = null; setConnected(false);
+}
+
+// Sends one console line and collects what comes back until `done(line, all)`
+// says so, or the timeout passes. Resolves to the collected lines (or null on
+// timeout). Serialised behind S.busy.
+function command(cmd, done, timeoutMs = 4000) {
+  const run = async () => {
+    if (!S.open) throw new Error('not connected');
+    const got = [];
+    const p = new Promise((resolve) => {
+      const t = setTimeout(() => { S.waiters = S.waiters.filter(f => f !== w); resolve(null); }, timeoutMs);
+      const w = (line) => { got.push(line); if (done(line, got)) { clearTimeout(t); S.waiters = S.waiters.filter(f => f !== w); resolve(got); } };
+      S.waiters.push(w);
+    });
+    if (cmd !== null) { log('> ' + cmd); await S.writer.write(enc.encode(cmd + '\n')); }
+    return p;
+  };
+  const next = S.busy.then(run, run);
+  S.busy = next.catch(() => {});
+  return next;
+}
+const untilDone = (l) => l === 'DONE';
+
+async function health() {
+  const r = await command('HEALTH', untilDone, 5000);
+  if (!r) return null;
+  const all = r.join('\n'), num = (re) => { const m = all.match(re); return m ? Number(m[1]) : null; };
+  return {
+    raw: r.filter(l => l !== 'DONE'),
+    up: num(/up=(\d+)s/), heap: num(/heap=(\d+)/), min: num(/min=(\d+)/), psram: num(/psram=(\d+)/),
+    sd: num(/sd=(\d+)/), pmuErr: num(/pmu_err=(\d+)/), saves: num(/saves=(\d+)/),
+    asked: num(/asked=(\d+)/), pushed: num(/pushed=(\d+)/), unchanged: num(/unchanged=(\d+)/),
+    screen: (all.match(/screen=(\w+)/) || [])[1] || null,
+    lastBoot: (all.match(/last boot: (.*)/) || [])[1] || null,
+  };
+}
+async function stats() {
+  const r = await command('STATS', untilDone, 5000);
+  if (!r) return null;
+  const all = r.join('\n'), num = (re) => { const m = all.match(re); return m ? Number(m[1]) : null; };
+  return { raw: r, spec: num(/spec=(-?\d+)/), lvl: num(/ nv=(\d+)/), ene: num(/ ene=(\d+)/),
+           desc: num(/desc=(\d+)/), nick: (all.match(/nick=(.*)/) || [])[1] ?? null };
+}
+
+// Hardware reset over the USB control lines (what esptool does: RTS pulls EN
+// low). If the port drops with the chip -- it does when the USB device is the
+// firmware itself -- wait for it to come back and reopen it.
+async function resetBoard() {
+  const port = S.port;
+  try {
+    await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+    await sleep(150);
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+  } catch (e) { log('! reset signal: ' + e.message); }
+  // Did it actually restart? Ask for HEALTH until up= is small again.
+  const t0 = Date.now();
+  while (Date.now() - t0 < 20000) {
+    await sleep(1500);
+    if (!S.open) {
+      // the USB device went away with the chip; it comes back as the same port
+      const ports = await navigator.serial.getPorts();
+      for (const p of ports) { try { await openPort(p); break; } catch (e) {} }
+      continue;
+    }
+    const h = await health().catch(() => null);
+    if (h && h.up !== null && h.up < 30) return true;
+  }
+  return false;
+}
+async function waitForManualReset() {
+  setTestState('Press the board\'s RESET button now (waiting 60 s)...');
+  const t0 = Date.now();
+  while (Date.now() - t0 < 60000) {
+    await sleep(2000);
+    if (!S.open) {
+      const ports = await navigator.serial.getPorts();
+      for (const p of ports) { try { await openPort(p); break; } catch (e) {} }
+      continue;
+    }
+    const h = await health().catch(() => null);
+    if (h && h.up !== null && h.up < 30) return true;
+  }
+  return false;
+}
+
+// ---------------- 1 connect ----------------
+if (!('serial' in navigator)) { $('unsupported').style.display = 'block'; $('connect').disabled = true; }
+$('connect').onclick = async () => {
+  try { await openPort(await navigator.serial.requestPort()); log('connected'); }
+  catch (e) { log('! connect: ' + e.message); }
+};
+$('disconnect').onclick = closePort;
+
+// ---------------- 2 backup ----------------
+let backupText = null;
+function updateInstallGate() {
+  const ok = !!backupText || $('nosave').checked;
+  $('installWrap').style.display = ok ? '' : 'none';
+  $('installGate').style.display = ok ? 'none' : '';
+}
+$('nosave').onchange = updateInstallGate;
+$('backup').onclick = async () => {
+  const r = await command('EXPORT', (l) => l === 'IMPORT' || l === 'EXPORT FAIL', 8000);
+  if (!r || r[r.length - 1] !== 'IMPORT') { log('! backup failed'); alert('Backup failed -- see the console log.'); return; }
+  const start = r.findIndex(l => l.startsWith('# TamaPoke save'));
+  backupText = r.slice(start >= 0 ? start : 0).join('\n') + '\n';
+  $('restoreText').value = backupText;
+  $('dlbackup').disabled = false;
+  log(`backup taken (${r.length} lines)`);
+  updateInstallGate();
+};
+$('dlbackup').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([backupText], { type: 'text/plain' }));
+  a.download = 'tamapoke-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt';
+  a.click();
+};
+$('restore').onclick = async () => {
+  const lines = $('restoreText').value.split('\n').map(s => s.trim()).filter(l => l.startsWith('IMPORT'));
+  if (!lines.length || lines[lines.length - 1] !== 'IMPORT') { alert('That is not a complete EXPORT block (it must end with a bare IMPORT line).'); return; }
+  if (!confirm('Replace the save on the board with this backup? The board restarts.')) return;
+  for (const l of lines.slice(0, -1)) { await command(l, () => false, 60); }   // chunks are acknowledged silently
+  const r = await command('IMPORT', (l) => /^IMPORT (OK|REJECTED|EMPTY|ODD|FULL|BAD)/.test(l), 6000);
+  log(r ? 'restore: ' + r[r.length - 1] : '! restore: no answer');
+  alert(r && r[r.length - 1] === 'IMPORT OK' ? 'Restored. The board is restarting.' : 'The board refused the backup -- see the log.');
+};
+
+// ---------------- 3 install ----------------
+// ESP Web Tools needs the port to itself.
+document.addEventListener('click', async (ev) => {
+  if (ev.target.closest && ev.target.closest('#installer') && S.port) { await closePort(); log('port closed for the installer'); }
+}, true);
+// builds/index.json lists one entry per pull request built for hardware testing:
+// { pr, title, branch, commit, version, built, dir, expects: [...] }. `expects`
+// names what that firmware's HEALTH must report, so "Test build installed" only
+// checks what this PR actually brings.
+let BUILDS = [], current = null;
+function pickBuild(i) {
+  current = BUILDS[i];
+  $('installer').setAttribute('manifest', current.dir + '/manifest.json');
+  $('buildInfo').textContent = `PR #${current.pr} · ${current.branch} @ ${current.commit} · firmware v${current.version} · built ${current.built}`;
+  $('build').textContent = `Selected: PR #${current.pr} (${current.commit})`;
+  try { localStorage.setItem('tp-bench-build', String(current.pr)); } catch (e) {}
+}
+fetch('builds/index.json').then(r => r.json()).then(list => {
+  BUILDS = list;
+  const sel = $('buildPick');
+  list.forEach((b, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `#${b.pr} · ${b.title}`; sel.appendChild(o); });
+  let want = 0; try { const pr = localStorage.getItem('tp-bench-build'); const k = list.findIndex(b => String(b.pr) === pr); if (k >= 0) want = k; } catch (e) {}
+  sel.value = want; pickBuild(want);
+  sel.onchange = () => pickBuild(Number(sel.value));
+}).catch(() => { $('buildInfo').textContent = 'No builds/index.json next to this page.'; });
+
+// ---------------- 4 automatic tests ----------------
+const results = [];
+function setTestState(t) { $('testState').textContent = t; }
+function addResult(name, verdict, detail) {
+  results.push({ name, verdict, detail });
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><span class="pill ${verdict}">${verdict}</span></td><td></td><td></td>`;
+  tr.children[1].textContent = name; tr.children[2].textContent = detail;
+  $('results').appendChild(tr);
+}
+
+$('runTests').onclick = async () => {
+  $('runTests').disabled = true; $('results').innerHTML = ''; results.length = 0;
+  try { await runTests(); } catch (e) { addResult('test run', 'FAIL', 'aborted: ' + e.message); }
+  setTestState('done'); $('runTests').disabled = !S.open;
+};
+
+async function runTests() {
+  setTestState('HEALTH...');
+  const h = await health();
+  if (!h) { addResult('Console answers', 'FAIL', 'no answer to HEALTH within 5 s'); return; }
+  addResult('Console answers', 'PASS', h.raw.join(' | '));
+
+  // features of this build, by what HEALTH prints
+  const have = { last_boot: h.lastBoot !== null, pmu_err: h.pmuErr !== null, saves: h.saves !== null, frames: h.asked !== null };
+  const want = (current && current.expects) || [];
+  const missing = want.filter(k => !have[k]);
+  addResult('Selected build installed', !want.length ? 'INFO' : missing.length ? 'FAIL' : 'PASS',
+    (current ? `PR #${current.pr}: ` : '') + (want.length ? `expects ${want.join(', ')} in HEALTH` : 'nothing to check') +
+    (missing.length ? ` -- missing ${missing.join(', ')}: an older firmware is still on the board` : ''));
+  addResult('Memory headroom', (h.heap > 80000 && h.psram > 1000000) ? 'PASS' : 'WARN',
+    `heap ${h.heap} B, lowest ${h.min} B, PSRAM free ${h.psram} B`);
+  addResult('Last restart', /crash/.test(h.lastBoot || '') ? 'WARN' : 'INFO', h.lastBoot || 'n/a');
+  addResult('SD card', h.sd === 1 ? 'PASS' : 'WARN', h.sd === 1 ? 'mounted' : 'not mounted (no card, or the format dialog is on screen)');
+  if (h.pmuErr === null) addResult('PMU I2C read errors', 'SKIP', 'not reported by this firmware');
+  else addResult('PMU I2C read errors', h.pmuErr ? 'WARN' : 'PASS',
+    h.pmuErr ? `${h.pmuErr} failed reads since boot -- each would have turned the screen off before the fix` : '0 so far (watch it in the soak test)');
+
+  // ---- the reported bug: saves after a battle
+  setTestState('save test: reading state...');
+  const s0 = await stats();
+  if (!s0 || s0.desc === null) { addResult('Saves after a battle', 'SKIP', 'STATS did not answer'); return; }
+  if (s0.spec < 1) { addResult('Saves after a battle', 'SKIP', 'the creature is still an egg -- hatch it first'); return; }
+  const d0 = s0.desc, d1 = d0 >= 255 ? 254 : d0 + 1;
+  setTestState('save test: starting a battle...');
+  const b = await command('BATTLE 19 2', untilDone, 5000);
+  const started = b && b.some(l => l.startsWith('battle vs'));
+  if (!started) {
+    addResult('Saves after a battle', 'SKIP', 'the console battle did not start (' + (b ? b.join(' | ') : 'no answer') + ')');
+  } else {
+    await command(`MISS ${d1}`, (l) => l.startsWith('desc='), 4000);
+    setTestState('save test: restarting the board...');
+    let back = await resetBoard();
+    if (!back) back = await waitForManualReset();
+    if (!back) {
+      addResult('Saves after a battle', 'SKIP', 'the board did not restart; press RESET and run again');
+    } else {
+      const s1 = await stats();
+      const ok = s1 && s1.desc === d1;
+      addResult('Saves after a battle', ok ? 'PASS' : 'FAIL',
+        ok ? `a value saved after a battle started (desc ${d0} -> ${d1}) survived a restart`
+           : `after a battle start the change did not survive a restart (expected desc=${d1}, got ${s1 ? s1.desc : 'nothing'}) -- the reported "progress lost" bug`);
+    }
+  }
+  await command(`MISS ${d0}`, (l) => l.startsWith('desc='), 4000);   // put it back
+  const s2 = await stats();
+  addResult('Save restored', s2 && s2.desc === d0 ? 'PASS' : 'WARN', `care mistakes back to ${s2 ? s2.desc : '?'} (was ${d0})`);
+
+  // ---- frame skipping on a still screen (performance package)
+  setTestState('idle frames: 8 s...');
+  const a = await health(); await sleep(8000); const z = await health();
+  if (a && z && a.asked !== null && z.asked !== null) {
+    const asked = z.asked - a.asked, pushed = z.pushed - a.pushed;
+    addResult('Unchanged frames are not pushed', asked > 0 && pushed < asked ? 'PASS' : 'INFO',
+      `${asked} frames drawn, ${pushed} pushed to the panel in 8 s on screen "${z.screen}" (an animated screen pushes most)`);
+  } else {
+    addResult('Unchanged frames are not pushed', 'SKIP', 'frame counters not reported by this firmware');
+  }
+
+  // ---- audio needs ears
+  setTestState('audio...');
+  await command('BEEP', untilDone, 3000);
+  const heard = confirm('Did the board just play a short jingle?');
+  addResult('Audio (BEEP)', heard ? 'PASS' : 'FAIL', heard ? 'heard' : 'not heard');
+}
+
+// ---------------- 5 manual checks ----------------
+const MANUAL = [
+  ['flicker', 'Tap the main screen 10 times, slowly and quickly. The screen never goes briefly black.'],
+  ['gymwin', 'Win a gym battle (Brock, with a strong creature). After the win screen the panel stays on and the badge shows on the player card (swipe down).'],
+  ['gymreset', 'Then press RESET. The badge is still there after the restart.'],
+  ['johto', 'Fight Johto\'s first leader: the second creature is Johto\'s (Pidgeotto), not Brock\'s Onix, and the badge counts under Johto.'],
+  ['music', 'After a fight the music stops cleanly -- no buzz, no hum from the speaker.'],
+  ['energy', 'A gym fight with the live creature costs it 10 ENE; a tired (ENE < 21) or sleeping one is greyed TIRED/ASLEEP on the team picker.'],
+  ['party', 'Party: open a creature\'s sheet, tap RELEASE, then swipe away. Open another creature: no release question is waiting.'],
+  ['pwr', 'Short-press PWR: screen off. Press again: the current picture is back at once.'],
+  ['dim', 'Leave it untouched for 2 minutes: it dims; one touch wakes it without pressing anything.'],
+  ['learn', 'If a "learn a move?" offer appears during a minigame, the game still gets your taps.'],
+];
+(function buildManual() {
+  const box = $('manual');
+  for (const [id, text] of MANUAL) {
+    const d = document.createElement('div'); d.className = 'check';
+    d.innerHTML = `<select data-id="${id}"><option value="">--</option><option>PASS</option><option>FAIL</option><option>SKIP</option></select><div class="what"></div>`;
+    d.querySelector('.what').textContent = text;
+    box.appendChild(d);
+  }
+  try { const saved = JSON.parse(localStorage.getItem('tp-bench-manual') || '{}');
+        for (const s of box.querySelectorAll('select')) s.value = saved[s.dataset.id] || ''; } catch (e) {}
+  box.addEventListener('change', () => {
+    const v = {}; for (const s of box.querySelectorAll('select')) v[s.dataset.id] = s.value;
+    try { localStorage.setItem('tp-bench-manual', JSON.stringify(v)); } catch (e) {}
+  });
+})();
+
+// ---------------- 6 soak ----------------
+const soak = { timer: null, samples: [] };
+$('soakStart').onclick = () => {
+  if (soak.timer) return;
+  $('soakStart').disabled = true; $('soakStop').disabled = false; $('soakCsv').disabled = false;
+  const tick = async () => {
+    const h = await health().catch(() => null);
+    if (h && h.heap !== null) {
+      const prev = soak.samples[soak.samples.length - 1];
+      soak.samples.push({ t: Date.now(), up: h.up, heap: h.heap, min: h.min, psram: h.psram, pmu: h.pmuErr, saves: h.saves,
+                          rebooted: prev && h.up < prev.up });
+      drawChart();
+    }
+  };
+  tick(); soak.timer = setInterval(tick, 60000);
+};
+$('soakStop').onclick = () => { clearInterval(soak.timer); soak.timer = null; $('soakStart').disabled = !S.open; $('soakStop').disabled = true; };
+$('soakCsv').onclick = () => {
+  const rows = ['time,up_s,heap,min_heap,psram,pmu_err,saves,rebooted'].concat(
+    soak.samples.map(s => [new Date(s.t).toISOString(), s.up, s.heap, s.min, s.psram, s.pmu, s.saves, s.rebooted ? 1 : 0].join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
+  a.download = 'tamapoke-soak.csv'; a.click();
+};
+// least-squares slope of heap over time, in bytes per hour
+function trend(key) {
+  const s = soak.samples; if (s.length < 5) return null;
+  const xs = s.map(p => (p.t - s[0].t) / 3600000), ys = s.map(p => p[key]);
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let num = 0, den = 0; for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+  return den ? num / den : null;
+}
+function drawChart() {
+  const s = soak.samples, svg = $('chart'); if (!s.length) return;
+  const vals = s.flatMap(p => [p.heap, p.min]), lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = Math.max(hi - lo, 1000), W = 700, H = 180;
+  const pt = (i, v) => `${s.length < 2 ? W / 2 : (i / (s.length - 1)) * (W - 20) + 10},${H - 10 - ((v - lo) / span) * (H - 20)}`;
+  const line = (k, c) => `<polyline fill="none" stroke="${c}" stroke-width="2" points="${s.map((p, i) => pt(i, p[k])).join(' ')}"/>`;
+  svg.innerHTML = line('heap', '#4f93c4') + line('min', '#d6452f') +
+    s.map((p, i) => p.rebooted ? `<line x1="${pt(i, lo).split(',')[0]}" x2="${pt(i, lo).split(',')[0]}" y1="0" y2="${H}" stroke="#c98a12" stroke-dasharray="4 3"/>` : '').join('');
+  const last = s[s.length - 1], hrs = ((last.t - s[0].t) / 3600000).toFixed(1), tr = trend('heap');
+  $('soakState').textContent = `${s.length} samples over ${hrs} h · heap ${last.heap} B, lowest ${last.min} B` +
+    (tr !== null ? ` · trend ${tr >= 0 ? '+' : ''}${Math.round(tr)} B/h` : '') +
+    (s.some(p => p.rebooted) ? ' · ⚠️ the board restarted during the run' : '');
+}
+
+// ---------------- 7 report ----------------
+$('mkReport').onclick = async () => {
+  const out = [];
+  out.push('# TamaPoke test bench report');
+  out.push(current ? `Build: PR #${current.pr} ${current.title} -- ${current.branch} @ ${current.commit}, v${current.version}, built ${current.built}` : 'Build: (none selected)');
+  out.push('Date: ' + new Date().toISOString());
+  if (S.open) { const h = await health().catch(() => null); if (h) out.push('HEALTH now: ' + h.raw.join(' | ')); }
+  out.push('', '## Automatic tests');
+  if (!results.length) out.push('(not run)');
+  for (const r of results) out.push(`- ${r.verdict} · ${r.name} · ${r.detail}`);
+  out.push('', '## Manual checks');
+  for (const s of $('manual').querySelectorAll('select')) {
+    const text = MANUAL.find(m => m[0] === s.dataset.id)[1];
+    out.push(`- ${s.value || 'not done'} · ${text}`);
+  }
+  out.push('', '## Soak test');
+  if (!soak.samples.length) out.push('(not run)');
+  else {
+    const s = soak.samples, a = s[0], z = s[s.length - 1];
+    out.push(`${s.length} samples over ${((z.t - a.t) / 3600000).toFixed(2)} h`);
+    out.push(`heap ${a.heap} -> ${z.heap} B, lowest ${Math.min(...s.map(p => p.min))} B, PSRAM ${a.psram} -> ${z.psram} B`);
+    const tr = trend('heap'); if (tr !== null) out.push(`heap trend ${Math.round(tr)} B/h`);
+    out.push(`pmu_err ${a.pmu} -> ${z.pmu}, saves ${a.saves} -> ${z.saves}, restarts during run: ${s.filter(p => p.rebooted).length}`);
+  }
+  out.push('', '## Last console lines');
+  out.push(...logLines.slice(-40));
+  $('report').value = out.join('\n');
+};
+$('cpReport').onclick = async () => {
+  try { await navigator.clipboard.writeText($('report').value); $('cpReport').textContent = 'Copied ✓'; }
+  catch (e) { $('report').select(); document.execCommand('copy'); }
+  setTimeout(() => { $('cpReport').textContent = 'Copy'; }, 1500);
+};
+</script>
+</body>
+</html>

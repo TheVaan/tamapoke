@@ -1,0 +1,14 @@
+{
+  "pr": 12,
+  "title": "Performance: draw and push less, save once per action",
+  "branch": "claude/review-p10-perf",
+  "commit": "81ce296",
+  "version": "3.12",
+  "built": "2026-10-25 23:13 UTC",
+  "dir": "builds/pr12",
+  "expects": [
+    "last_boot",
+    "saves",
+    "frames"
+  ]
+}
