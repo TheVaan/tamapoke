@@ -43,7 +43,7 @@ uses, `grep -ln 'name' tools/emu/tests/*.cpp`.
 | `holdStart` | `TamaPoke.ino` (global) | Declared, never read or written; the long-press uses `tStart`. |
 | `BTN_TRAIN` | `TamaPoke.ino` | Defined, never compared: the tap handler's final `else` is the train button. |
 | `foeSwitched` + `(void)foeSwitched` | `btlResolve()` | Set, then explicitly discarded. |
-| `btlWinUntil = millis() + 60000` | `btlResolve()` | The deadline is never compared with anything; only "non-zero" matters, so it is a flag that looks like a timer. |
+| `btlWinUntil = millis() + 60000` | `btlSettleFaints()` (in `btlResolve()` before #5) | The deadline is never compared with anything; only "non-zero" matters, so it is a flag that looks like a timer. |
 | `passive` in `renderTrain()` | `TamaPoke.ino` | Always `false` ("every row opens a game now, DEF included"), so the `UI_TRACK` branch is unreachable. The comments near the training globals and in CLAUDE.md § "Training mechanics" still describe DEF as passive. |
 | `tmLevelFor(const MoveEntry &m)` | `pet.cpp` | The parameter is ignored (`(void)m;`, flat `TM_LEVEL`). The comment above `relearnFromLevel()` still says "roughly power/2". |
 | `missed` | `tools/emu/tests/lossy_test.cpp` | Unused local (test code). |
