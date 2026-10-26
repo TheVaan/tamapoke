@@ -1,5 +1,6 @@
 #include "i18n.h"
 #include "pet.h"        // MED_COUNT
+#include "names.h"      // species names in DE/FR (generated)
 #include <Preferences.h>
 #include <stdlib.h>
 #include <string.h>
@@ -359,13 +360,34 @@ static const char *gStr[STR_COUNT];
 static const char *gMed[3][MED_COUNT];
 static char *gStrBuf = nullptr;
 
+// The species-name table of a language that has its own (names.h), or nullptr
+// for the languages whose games use the English names.
+static const char *const *speciesTable(Lang l) {
+  switch (l) {
+    case LANG_DE: return SPECIES_NAME_DE;
+    case LANG_FR: return SPECIES_NAME_FR;
+    default: return nullptr;
+  }
+}
+
+// The few species names with umlauts, encoded for the panel when the language
+// becomes active. Every other name is plain ASCII and comes straight from flash.
+#define NAME_ENC_MAX 16
+static int16_t gNameEncDex[NAME_ENC_MAX];
+static const char *gNameEncStr[NAME_ENC_MAX];
+static uint8_t gNameEncN = 0;
+
 static void activate(Lang l) {
   const char *const *med[3] = { MED_NAME[l], MED_LBL[l], MED_DSC[l] };
+  const char *const *names = speciesTable(l);
   size_t need = 0;
   bool high = false;
   for (int i = 0; i < STR_COUNT; i++) { need += strlen(STRINGS[l][i]) + 1; high |= hasHighBytes(STRINGS[l][i]); }
   for (int t = 0; t < 3; t++)
     for (int i = 0; i < MED_COUNT; i++) { need += strlen(med[t][i]) + 1; high |= hasHighBytes(med[t][i]); }
+  if (names)
+    for (int d = 1; d <= DEX_COUNT; d++)
+      if (names[d] && hasHighBytes(names[d])) { need += strlen(names[d]) + 1; high = true; }
   free(gStrBuf);
   gStrBuf = high ? (char *)malloc(need) : nullptr;
   // Encoding only ever shortens a string, so `need` bytes always suffice. If
@@ -381,6 +403,13 @@ static void activate(Lang l) {
   for (int i = 0; i < STR_COUNT; i++) gStr[i] = place(STRINGS[l][i]);
   for (int t = 0; t < 3; t++)
     for (int i = 0; i < MED_COUNT; i++) gMed[t][i] = place(med[t][i]);
+  gNameEncN = 0;
+  if (names && w)
+    for (int d = 1; d <= DEX_COUNT && gNameEncN < NAME_ENC_MAX; d++)
+      if (names[d] && hasHighBytes(names[d])) {
+        gNameEncDex[gNameEncN] = (int16_t)d;
+        gNameEncStr[gNameEncN++] = place(names[d]);
+      }
   gActive = l;
 }
 
@@ -400,6 +429,23 @@ const char *TL(Lang l, StrId id) {
   glcdEncode(STRINGS[l][id], buf[k], sizeof(buf[k]));
   return buf[k];
 }
+// A species' name in the active language, encoded for the panel. Falls back to
+// the English DEX_TBL name where the language has no name of its own -- and if
+// an umlaut name could not be encoded, since English beats garbage. The serial
+// console keeps DEX_TBL's English names on purpose: they are what its commands
+// and every bug report use.
+const char *speciesName(int16_t dex) {
+  if (dex < 0 || dex > DEX_COUNT) dex = 0;
+  follow();
+  const char *const *names = speciesTable(gLang);
+  const char *s = names ? names[dex] : nullptr;
+  if (!s) return DEX_TBL[dex].name;
+  if (!hasHighBytes(s)) return s;
+  for (uint8_t k = 0; k < gNameEncN; k++)
+    if (gNameEncDex[k] == dex) return gNameEncStr[k];
+  return DEX_TBL[dex].name;
+}
+
 const char *i18nSource(Lang l, StrId id) { return STRINGS[l < LANG_COUNT ? l : LANG_DEFAULT][id]; }
 
 // In enum order. Not in STRINGS: a language's own name is the same whichever

@@ -1032,7 +1032,7 @@ void loop() {
     // party first, then the box; only a full box makes it your choice
     if (party.add(pet.endedMon) || party.boxAdd(pet.endedMon)) {
       snprintf(partyBannerName, sizeof(partyBannerName), "%s",
-               pet.endedMon.nick[0] ? pet.endedMon.nick : DEX_TBL[pet.endedMon.dex].name);
+               pet.endedMon.nick[0] ? pet.endedMon.nick : speciesName(pet.endedMon.dex));
       partyBannerUntil = now + 3500;
       pet.endedKind = CER_NONE;
       sfxPlay(SFX_MEDAL);
@@ -1715,7 +1715,7 @@ void renderMonSheet(const PartyMon &m, bool fromBox) {
   gfx->fillCircle(CX, CY, 231, UI_BG_DAY);
   char head[36];
   snprintf(head, sizeof(head), "%s%s Lv.%u", m.shiny ? "*" : "",
-           m.nick[0] ? m.nick : d.name, (unsigned)m.level);
+           m.nick[0] ? m.nick : speciesName(m.dex), (unsigned)m.level);
   gfx->setTextColor(d.accent);
   gfx->setTextSize(2);
   gfx->setCursor(CX - (int)strlen(head) * 6, 40);
@@ -1788,7 +1788,7 @@ void renderMonSheet(const PartyMon &m, bool fromBox) {
   // a farewell, it does not join anything, and there is no undo.
   if (releaseConfirm) {
     char q[40];
-    snprintf(q, sizeof(q), T(S_RELEASE_FMT), m.nick[0] ? m.nick : d.name);
+    snprintf(q, sizeof(q), T(S_RELEASE_FMT), m.nick[0] ? m.nick : speciesName(m.dex));
     drawConfirmPanel(q, T(S_RELEASE_GONE), nullptr, UI_BAR_BAD,
                      T(S_YES), UI_BAR_BAD, UI_WHITE, T(S_NO), UI_TRACK, UI_INK);
   }
@@ -1924,7 +1924,7 @@ bool partyCloseHit(int16_t x, int16_t y) {
 void partyPlaceNewcomer(int i) {
   party.replaceAt(i, pet.endedMon);
   snprintf(partyBannerName, sizeof(partyBannerName), "%s",
-           pet.endedMon.nick[0] ? pet.endedMon.nick : DEX_TBL[pet.endedMon.dex].name);
+           pet.endedMon.nick[0] ? pet.endedMon.nick : speciesName(pet.endedMon.dex));
   partyBannerUntil = millis() + 3500;
   pet.endedKind = CER_NONE;
   partyPick = false;
@@ -2652,7 +2652,7 @@ void renderStarterSelect() {
     gfx->setTextColor(UI_INK);
     gfx->setTextSize(3);
     gfx->setCursor(178, ry + 24);
-    gfx->print(de.name);
+    gfx->print(speciesName(d));
   }
   gfx->flush();
 }
@@ -2948,7 +2948,7 @@ void render() {
     const char *msg = (pet.ceremony == CER_FAREWELL) ? T(S_FAREWELL)
                       : (pet.ceremony == CER_RUNAWAY) ? T(S_RUNAWAY)
                                                       : T(S_GOODBYE);
-    drawHeader(d.name, d.accent, msg);
+    drawHeader(speciesName(pet.speciesId), d.accent, msg);
     drawCeremony();
     gfx->flush();
     return;
@@ -2985,7 +2985,7 @@ void render() {
   } else {
     const DexEntry &d = DEX_TBL[pet.speciesId];
     char name[28];
-    const char *base = pet.nick[0] ? pet.nick : d.name;
+    const char *base = pet.nick[0] ? pet.nick : speciesName(pet.speciesId);
     snprintf(name, sizeof(name), T(S_NAME_FMT), pet.shiny ? "*" : "", base, pet.level());
     drawHeader(name, gNight ? UI_INK_NIGHT : d.accent, statusMsg());
     drawStreakBadge();
@@ -3031,7 +3031,7 @@ void render() {
       gfx->fillRoundRect(94, 168, 278, 152, 16, UI_WHITE);
       gfx->drawRoundRect(94, 168, 278, 152, 16, UI_INK);
       char q[28];
-      snprintf(q, sizeof(q), T(S_RELEASE_FMT), DEX_TBL[pet.speciesId].name);
+      snprintf(q, sizeof(q), T(S_RELEASE_FMT), speciesName(pet.speciesId));
       gfx->setTextColor(UI_INK);
       gfx->setTextSize(2);
       gfx->setCursor(CX - strlen(q) * 6, 196);
@@ -3664,7 +3664,7 @@ void drawMedalBadge(int x, int y, int i) {
 // pagina 0: perfil (retrato grande, identidad, racha, vinculo, baya)
 void renderCardProfile() {
   const DexEntry &d = DEX_TBL[pet.speciesId];
-  const char *nm = pet.nick[0] ? pet.nick : d.name;
+  const char *nm = pet.nick[0] ? pet.nick : speciesName(pet.speciesId);
   char head[26];
   snprintf(head, sizeof(head), T(S_NAME_FMT), pet.shiny ? "*" : "", nm, pet.level());
   gfx->setTextColor(d.accent);
@@ -3678,8 +3678,8 @@ void renderCardProfile() {
   if (pet.nick[0]) {  // especie real bajo el apodo
     gfx->setTextColor(UI_TRACK);
     gfx->setTextSize(2);
-    gfx->setCursor(CX - (strlen(d.name) + 2) * 6, 64);
-    gfx->printf("(%s)", d.name);
+    gfx->setCursor(CX - (strlen(speciesName(pet.speciesId)) + 2) * 6, 64);
+    gfx->printf("(%s)", speciesName(pet.speciesId));
   }
 
   // retrato grande animado
@@ -5276,11 +5276,11 @@ static void drawPickCell(uint8_t n, int x, int y, uint8_t capLvl) {
   int16_t dex; uint16_t lvl; const char *nm; bool shiny;
   if (n == 0) {
     dex = pet.speciesId; lvl = pet.level(); shiny = pet.shiny;
-    nm = pet.nick[0] ? pet.nick : DEX_TBL[dex].name;
+    nm = pet.nick[0] ? pet.nick : speciesName(dex);
   } else {
     const PartyMon &m = party.slots[n - 1];
     dex = m.dex; lvl = m.level; shiny = m.shiny;
-    nm = m.nick[0] ? m.nick : DEX_TBL[dex].name;
+    nm = m.nick[0] ? m.nick : speciesName(dex);
   }
   if (capLvl && lvl > capLvl) lvl = capLvl;   // show the level it will FIGHT at
   gfx->fillRoundRect(x, y, PICK_CELL_W, PICK_CELL_H, 10, on ? UI_BG_DAY : UI_TRACK);
@@ -5929,7 +5929,7 @@ void renderLearn() {
   gfx->fillCircle(CX, CY, 231, UI_BG_DAY);
   uint8_t mv = pet.learnOffer();
   char head[40];
-  const char *nm = pet.nick[0] ? pet.nick : DEX_TBL[pet.speciesId].name;
+  const char *nm = pet.nick[0] ? pet.nick : speciesName(pet.speciesId);
   snprintf(head, sizeof(head), T(S_LEARN_Q), nm);
   gfx->setTextColor(UI_INK);
   gfx->setTextSize(1);
@@ -6181,7 +6181,7 @@ void renderBox() {
     const PartyMon &p = party.slots[boxSwapFrom - 1];
     char sub[40];
     snprintf(sub, sizeof(sub), T(S_BOX_SWAP),
-             p.empty() ? "-" : (p.nick[0] ? p.nick : DEX_TBL[p.dex].name));
+             p.empty() ? "-" : (p.nick[0] ? p.nick : speciesName(p.dex)));
     gfx->setTextColor(UI_BAR_WARN);
     gfx->setTextSize(1);
     gfx->setCursor(CX - (int)strlen(sub) * 3, 64);
@@ -6208,7 +6208,7 @@ void renderBox() {
     gfx->setTextColor(UI_INK);
     gfx->setTextSize(1);
     gfx->setCursor(x + 52, y + 16);
-    gfx->print(m.nick[0] ? m.nick : DEX_TBL[m.dex].name);
+    gfx->print(m.nick[0] ? m.nick : speciesName(m.dex));
     char l[16];
     snprintf(l, sizeof(l), "Lv.%u%s", (unsigned)m.level, m.shiny ? " *" : "");
     gfx->setCursor(x + 52, y + 34);
@@ -6302,7 +6302,7 @@ void drawPartySlot(int i, int x, int y) {
   const uint8_t *th = thumbs.get(m.dex);
   if (th) drawThumb(th, x - 6, y - 3, 1, false);
   const DexEntry &d = DEX_TBL[m.dex];
-  const char *nm = m.nick[0] ? m.nick : d.name;
+  const char *nm = m.nick[0] ? m.nick : speciesName(m.dex);
   gfx->setTextColor(d.accent);
   gfx->setTextSize(1);
   gfx->setCursor(x + 62, y + 18);
@@ -6350,7 +6350,7 @@ void renderParty() {
     const PartyMon &b = party.box[boxSel - 1];
     char sw[44];
     snprintf(sw, sizeof(sw), T(S_BOX_SWAP),
-             b.nick[0] ? b.nick : DEX_TBL[b.dex].name);
+             b.nick[0] ? b.nick : speciesName(b.dex));
     gfx->setTextColor(UI_BAR_WARN);
     gfx->setTextSize(1);
     gfx->setCursor(CX - (int)strlen(sw) * 3, 72);
@@ -6385,7 +6385,7 @@ void renderParty() {
   // LET GO names the newcomer, a slot names who it would replace.
   if (partyPick && pickConfirm != PICKCONF_NONE) {
     const PartyMon &n = pet.endedMon;
-    const char *nn = n.nick[0] ? n.nick : DEX_TBL[n.dex].name;
+    const char *nn = n.nick[0] ? n.nick : speciesName(n.dex);
     char q[40];
     char sub[44];
     const char *sub2 = nullptr;
@@ -6393,7 +6393,7 @@ void renderParty() {
       snprintf(q, sizeof(q), T(S_RELEASE_FMT), nn);
     } else {
       const PartyMon &o = party.slots[(pickConfirm - 1) % PARTY_SLOTS];
-      snprintf(q, sizeof(q), T(S_RELEASE_FMT), o.nick[0] ? o.nick : DEX_TBL[o.dex].name);
+      snprintf(q, sizeof(q), T(S_RELEASE_FMT), o.nick[0] ? o.nick : speciesName(o.dex));
       snprintf(sub, sizeof(sub), T(S_PARTY_TAKES_FMT), nn);
       sub2 = sub;
     }
@@ -6509,7 +6509,7 @@ void renderGallery() {
     bool reg = pet.isRegistered(galleryDetail);
     char head[24];
     snprintf(head, sizeof(head), "N.%03d %s%s", galleryDetail,
-             pet.isShinyRegistered(galleryDetail) ? "*" : "", reg ? d.name : "???");
+             pet.isShinyRegistered(galleryDetail) ? "*" : "", reg ? speciesName(galleryDetail) : "???");
     gfx->setTextColor(reg ? d.accent : UI_INK);
     int glen = strlen(head);
     int gts = (glen <= 13) ? 3 : 2;  // auto-encoge nombres largos (no caben a t3)
@@ -6817,7 +6817,7 @@ void drawFarewellButton() {
   gfx->fillRoundRect(x, y, w, h, 16, UI_BAR_WARN);
   gfx->drawRoundRect(x, y, w, h, 16, UI_INK);
   char buf[52];
-  const char *nm = pet.nick[0] ? pet.nick : DEX_TBL[pet.speciesId].name;
+  const char *nm = pet.nick[0] ? pet.nick : speciesName(pet.speciesId);
   snprintf(buf, sizeof(buf), T(S_FAREWELL_BTN), nm);
   gfx->setTextColor(UI_INK);
   gfx->setTextSize(2);
@@ -6834,7 +6834,7 @@ void drawRunawayButton() {
   gfx->fillRoundRect(x, y, w, h, 16, C565(0x3a, 0x44, 0x5a));
   gfx->drawRoundRect(x, y, w, h, 16, C565(0x70, 0x80, 0x98));
   char buf[52];
-  const char *nm = pet.nick[0] ? pet.nick : DEX_TBL[pet.speciesId].name;
+  const char *nm = pet.nick[0] ? pet.nick : speciesName(pet.speciesId);
   snprintf(buf, sizeof(buf), T(S_RUNAWAY_BTN), nm);
   gfx->setTextColor(C565(0xc8, 0xd2, 0xe0));
   gfx->setTextSize(2);
