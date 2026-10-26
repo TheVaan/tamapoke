@@ -41,7 +41,14 @@ hardware draws.
 |---|---|---|
 | <img src="docs/screens/region.png" width="240"> | <img src="docs/screens/starter.png" width="240"> | <img src="docs/screens/starterj.png" width="240"> |
 
-A new game asks which region you are playing before it asks which creature you
+A brand-new board -- a fresh install, or after `WIPE` -- first asks which
+**language** to use: six rows, each named in its own language (ESPANOL, ENGLISH,
+FRANCAIS, DEUTSCH, ITALIANO, PORTUGUES), so nobody has to read English to find
+theirs. It comes before everything else, the SD card question included, and
+the settings screen still changes it later. A save that already has a creature
+is never stopped to be asked.
+
+A new game then asks which region you are playing before it asks which creature you
 want. The choice sets both: you pick from that region's three starters, and it
 becomes where your eggs come from afterwards (changeable later on the egg's
 region pill). Existing saves never see this screen -- it only appears when the
@@ -654,7 +661,8 @@ a farewell and punished by a runaway. Legendaries only with 25+ registered.
 **Shiny** 1/48 (better with streak/bond/farewell).
 
 **Languages:** the UI ships in 6 languages — English (default), Spanish, French,
-German, Italian, Portuguese — switchable from the settings screen (swipe down).
+German, Italian, Portuguese — chosen on the very first screen of a new board,
+and switchable from the settings screen (swipe down).
 
 ## Backgrounds: biome + real time
 

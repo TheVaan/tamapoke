@@ -295,6 +295,17 @@ static const char *const MED_DSC[LANG_COUNT][MED_COUNT] = {
 };
 
 const char *T(StrId id) { return STRINGS[gLang][id]; }
+const char *TL(Lang l, StrId id) { return STRINGS[l < LANG_COUNT ? l : LANG_DEFAULT][id]; }
+
+// In enum order. Not in STRINGS: a language's own name is the same whichever
+// language is active, so it is one column, not six copies of it.
+static const char *const LANG_NATIVE[LANG_COUNT] = {
+  "ESPANOL", "ENGLISH", "FRANCAIS", "DEUTSCH", "ITALIANO", "PORTUGUES"
+};
+const char *langNativeName(Lang l) { return LANG_NATIVE[l < LANG_COUNT ? l : LANG_DEFAULT]; }
+
+static bool gLangChosen = false;
+bool langChosen() { return gLangChosen; }
 const char *medalName(int i)  { return MED_NAME[gLang][i]; }
 const char *medalLabel(int i) { return MED_LBL[gLang][i]; }
 const char *medalDesc(int i)  { return MED_DSC[gLang][i]; }
@@ -303,6 +314,8 @@ void loadLang() {
   Preferences p;
   p.begin("tamapoke", true);  // solo lectura
   uint8_t v = p.getUChar("lang", LANG_DEFAULT);
+  // The key, not the value: a player who picked English stored LANG_DEFAULT.
+  gLangChosen = p.isKey("lang");
   p.end();
   gLang = (v < LANG_COUNT) ? (Lang)v : LANG_DEFAULT;
 }
@@ -310,6 +323,7 @@ void loadLang() {
 void setLang(Lang l) {
   if (l >= LANG_COUNT) return;
   gLang = l;
+  gLangChosen = true;
   Preferences p;
   p.begin("tamapoke", false);
   p.putUChar("lang", (uint8_t)l);

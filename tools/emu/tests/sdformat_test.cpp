@@ -13,6 +13,7 @@
 #include "Arduino_GFX_Library.h"
 #include "Preferences.h"
 #include "pet.h"
+#include "i18n.h"
 #include "sdmon.h"
 #include <cstdio>
 #include <cstring>
@@ -70,6 +71,7 @@ static void makeCard(){
 static void boot(int card){
   makeCard();
   emuSetSdCard(card);
+  setLang(LANG_EN);   // past the first-boot language question, which comes first
   setup();
   for (int i = 0; i < 3; i++) loop();
   sdAskRects(&X0,&X1,&CT,&CB,&FT,&FB);

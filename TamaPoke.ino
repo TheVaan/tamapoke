@@ -228,6 +228,7 @@ enum : uint8_t {
   // Appended, not inserted: the crash breadcrumb stores this index in RTC
   // memory, and inserting would renumber every screen after it.
   SCR_SDCARD,
+  SCR_LANG,
   SCR_COUNT
 };
 extern const char *const SCREEN_NAME[SCR_COUNT];   // const is internal linkage in C++
@@ -235,9 +236,10 @@ extern const char *const SCREEN_NAME[SCR_COUNT];   // const is internal linkage 
 // ---------- the unreadable SD card ----------
 // A card answered at boot but its filesystem would not mount. It used to be
 // formatted on the spot, without a word; now the player is asked, because
-// formatting erases whatever was on it. Modal and FIRST in uiCurrentScreen():
-// it is a boot-time question, it decides what gRegionArt says before the
-// first-boot region chooser reads it, and nothing behind it may take a tap.
+// formatting erases whatever was on it. Modal, and first in uiCurrentScreen()
+// after the language question below: it is a boot-time question, it decides
+// what gRegionArt says before the first-boot region chooser reads it, and
+// nothing behind it may take a tap.
 // Not persisted: CANCEL plays on without sprites and the question comes back
 // on the next boot, which is the harmless direction.
 enum : uint8_t { SDASK_NONE = 0, SDASK_ASK, SDASK_BUSY, SDASK_OK, SDASK_FAIL };
@@ -257,6 +259,26 @@ void renderSdAsk();
 void sdAskTap(int16_t x, int16_t y);
 void sdMountedLoad();
 void render();   // sdAskTap() draws the "formatting" frame before it blocks
+
+// ---------- the first-boot language question ----------
+// A board with no language ever picked -- a fresh install, or after WIPE --
+// asks for one before ANYTHING else, the SD question included, so that every
+// screen after it is already in the player's language. Each row names its
+// language in that language: whoever is choosing may not read English.
+// Only on a new game (awaitingStarter): a player upgrading from a build without
+// this question has a creature and never stored a language if they kept the
+// default, and must not be stopped mid-game to be asked.
+// Six rows tile their hit areas with no dead pixels, unlike the SD question:
+// nothing here is irreversible, and SETTINGS changes it at any time.
+#define LANGPICK_X 103
+#define LANGPICK_W 260
+#define LANGPICK_H 48
+#define LANGPICK_Y0 96
+#define LANGPICK_PITCH 54
+#define LANGPICK_Y(i) (LANGPICK_Y0 + (i) * LANGPICK_PITCH)
+void renderLangPick();
+void langPickTap(int16_t x, int16_t y);
+int langPickRowAt(int16_t x, int16_t y);   // exposed for lang_test
 
 // Declared HERE, above every use. tools/emu/build.sh generates a proto.h with
 // every prototype at the top, so the emulator compiled these happily while
@@ -280,7 +302,7 @@ const char *const SCREEN_NAME[SCR_COUNT] = {
   "starter", "region", "gallery", "dexpick", "movepick", "box",
   "party", "keyboard", "card", "player", "clock", "gym", "gympick",
   "lan", "pick", "battle", "win", "learn", "train", "menu",
-  "minigame", "main", "sdcard"
+  "minigame", "main", "sdcard", "lang"
 };
 
 // Badge art for a region, or nullptr when that region has none yet.
@@ -1364,6 +1386,7 @@ void onSwipeV(int dir) {
     case SCR_REGION:
     case SCR_STARTER: return;     // bloqueado durante la eleccion de inicial
     case SCR_SDCARD: return;      // modal: only its two buttons answer
+    case SCR_LANG: return;        // only a language row answers
     case SCR_DEXPICK:
     case SCR_GYMPICK: return;     // on the chooser, vertical does nothing: pick a row
     case SCR_MENU: menuOpen = false; return;   // any swipe closes the menu
@@ -1782,6 +1805,7 @@ void onSwipe(int dir) {
     case SCR_REGION:
     case SCR_STARTER: return;     // bloqueado durante la eleccion de inicial
     case SCR_SDCARD: return;      // modal: only its two buttons answer
+    case SCR_LANG: return;        // only a language row answers
     case SCR_DEXPICK:
     case SCR_GYMPICK: return;     // rpickSwipe() above owns these
     case SCR_MENU: menuOpen = false; return;   // any swipe closes the menu
@@ -1891,6 +1915,7 @@ int feedItemAt(int16_t x, int16_t y) {
 void onTap(int16_t x, int16_t y) {
   switch (uiCurrentScreen()) {
     case SCR_SDCARD: sdAskTap(x, y); return;
+    case SCR_LANG: langPickTap(x, y); return;
     case SCR_REGION:
     case SCR_STARTER: {
       if (!starterRegionDone) {
@@ -2394,6 +2419,7 @@ RTC_NOINIT_ATTR uint32_t gCrumbHeap;
 // the card underneath. The order here is render()'s, because what is DRAWN is
 // what the player is pressing.
 uint8_t uiCurrentScreen() {
+  if (!langChosen() && pet.awaitingStarter()) return SCR_LANG;   // before any question
   if (sdAsk) return SCR_SDCARD;   // boot-time and modal: ahead of the first-boot flow
   if (pet.awaitingStarter()) return starterRegionDone ? SCR_STARTER : SCR_REGION;
   if (galleryOpen) return galleryPick ? SCR_DEXPICK : SCR_GALLERY;
@@ -2563,6 +2589,49 @@ void sdAskTap(int16_t x, int16_t y) {
   }
 }
 
+static_assert(LANGPICK_H >= UI_TAP_MIN, "a language row must be a full finger high");
+
+// Which language row a tap lands on, or -1. The rows tile: each owns half the
+// gap above and below it, and the sides reach a little past the drawn edge.
+int langPickRowAt(int16_t x, int16_t y) {
+  if (x < LANGPICK_X - 16 || x > LANGPICK_X + LANGPICK_W + 16) return -1;
+  int top = LANGPICK_Y0 - (LANGPICK_PITCH - LANGPICK_H) / 2;
+  if (y < top) return -1;
+  int r = (y - top) / LANGPICK_PITCH;
+  return r < LANG_COUNT ? r : -1;
+}
+
+void renderLangPick() {
+  gfx->fillScreen(RGB565_BLACK);
+  gfx->fillCircle(CX, CY, 231, UI_BG_DAY);
+  // The heading cycles through the six words for "language": a fixed English
+  // one would assume the very thing this screen is asking.
+  const char *ttl = TL((Lang)((millis() / 1500) % LANG_COUNT), S_LANG_LABEL);
+  gfx->setTextColor(UI_INK);
+  gfx->setTextSize(3);
+  gfx->setCursor(CX - (int)strlen(ttl) * 9, 50);
+  gfx->print(ttl);
+  for (uint8_t i = 0; i < LANG_COUNT; i++) {
+    int y = LANGPICK_Y(i);
+    gfx->fillRoundRect(LANGPICK_X, y, LANGPICK_W, LANGPICK_H, 12, UI_WHITE);
+    gfx->drawRoundRect(LANGPICK_X, y, LANGPICK_W, LANGPICK_H, 12, UI_INK);
+    const char *nm = langNativeName((Lang)i);
+    gfx->setTextColor(UI_INK);
+    gfx->setTextSize(3);
+    gfx->setCursor(CX - (int)strlen(nm) * 9, y + LANGPICK_H / 2 - 11);
+    gfx->print(nm);
+  }
+  gfx->flush();
+}
+
+void langPickTap(int16_t x, int16_t y) {
+  int r = langPickRowAt(x, y);
+  if (r < 0) return;
+  setLang((Lang)r);
+  sfxPlay(SFX_TAP);
+  Serial.printf("language: %s\n", langNativeName((Lang)r));
+}
+
 void render() {
   crumbDrop();   // so a crash can name the screen it happened on
   switch (uiCurrentScreen()) {
@@ -2599,6 +2668,7 @@ void render() {
     case SCR_PLAYER: renderPlayer(); return;
     case SCR_LEARN: renderLearn(); return;
     case SCR_SDCARD: renderSdAsk(); return;
+    case SCR_LANG: renderLangPick(); return;
     case SCR_CARD: renderCard(); return;
     default: break;   // SCR_MAIN, and SCR_MENU which is drawn over it
   }

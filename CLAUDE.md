@@ -379,6 +379,14 @@ silently changing the first screen anyone sees.
 
 The region step is not persisted -- a reset between the two lands back on the
 region, which is the harmless direction: nothing has been chosen yet.
+
+**A language question comes before all of it** (`SCR_LANG`, first in
+`uiCurrentScreen()`, ahead of even the SD question so that one is asked in the
+player's language). It shows when NO `"lang"` key exists AND the game is new
+(`awaitingStarter()`) -- the KEY, not the value, since a player who picked
+English stored `LANG_DEFAULT`; and only on a new game, since a player who kept
+the default never stored a key and must not be stopped mid-game. `lang_test`
+pins both halves.
 `renderRegionPick()` took a mode (`RPICK_FOR_GYMS/DEX/START`) instead of a bool;
 at first boot every progress count would read zero, so it shows each region's
 first starter as the subtitle and drops the BACK label, there being nowhere to
