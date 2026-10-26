@@ -147,6 +147,8 @@ enum StrId : uint8_t {
   // FIGHT button when it is the only candidate.
   S_FIGHT_TIRED,    // energy too low to pay for a battle
   S_FIGHT_ASLEEP,   // asleep
+  S_FAR_FOREVER,      // farewell dialog, third answer: never offer it again
+  S_FAR_LATER_FMT,    // ...and where the goodbye still is: "later: %s in the menu"
   STR_COUNT
 };
 

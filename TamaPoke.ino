@@ -292,12 +292,17 @@ uint8_t uiCurrentScreen();
 // ~4000 lines above where they are defined. The emulator generates a proto.h and
 // would compile it either way; arduino-cli would not, and that has shipped once.
 void uiConfirmRects(int *b1Top, int *b1Bot, int *b2Top, int *b2Bot);
+void uiConfirmRect3(int *b3Top, int *b3Bot);
 void renderParty();
 void renderBox();
 void partyReset(bool closeParty);
 void drawConfirmPanel(const char *q, const char *sub1, const char *sub2,
                       uint16_t subCol, const char *o1, uint16_t c1, uint16_t t1,
                       const char *o2, uint16_t c2, uint16_t t2);
+void drawConfirmPanel3(const char *q, const char *sub1, const char *sub2,
+                       uint16_t subCol, const char *o1, uint16_t c1, uint16_t t1,
+                       const char *o2, uint16_t c2, uint16_t t2,
+                       const char *o3, uint16_t c3, uint16_t t3);
 const char *const SCREEN_NAME[SCR_COUNT] = {
   "starter", "region", "gallery", "dexpick", "movepick", "box",
   "party", "keyboard", "card", "player", "clock", "gym", "gympick",
@@ -448,6 +453,10 @@ uint8_t btlMyAct = 0;        // host: our own action, latched until theirs lands
 #define CONFIRM_BTN_H 52
 #define CONFIRM_B1_Y 206
 #define CONFIRM_B2_Y 268
+// The farewell asks a THIRD question ("keep forever"), so its panel grows down
+// by one button. Every other caller keeps the two-button panel above.
+#define CONFIRM_B3_Y 330
+#define CONFIRM_H3 236
 
 // The two buttons on the party/box detail sheet. A third full-width row would
 // not fit above BACK, and BRING BACK was h=38 -- under UI_TAP_MIN, the shape
@@ -2174,9 +2183,15 @@ void onTap(int16_t x, int16_t y) {
     } else if (choiceKind == 3) {          // retirada a peticion
       if (b1) pet.startRetire();
       // b2 is simply "no": nothing to decline, the row is always there
-    } else if (choiceKind == 2) {          // despedida
+    } else if (choiceKind == 2) {          // farewell
+      int c3t, c3b;
+      uiConfirmRect3(&c3t, &c3b);
       if (b1) pet.startFarewell();
-      else if (b2) pet.declineFarewell();
+      else if (inX && y >= c3t && y <= c3b) pet.keepForever();
+      // Anything else -- a miss included -- is "stay together". Closing the
+      // question unanswered used to leave the button up, and the button lies
+      // over the creature, so the next tap meant to pet it asked again at once.
+      else pet.declineFarewell();
     }
     choiceKind = 0;
     return;
@@ -2783,8 +2798,11 @@ void render() {
 
   // dialogo de decision (evolucionar/mantener, despedirse/quedaros)
   if (choiceKind) {
-    if (!timerActive(choiceUntil, millis())) choiceKind = 0;
-    else drawChoiceDialog();
+    if (!timerActive(choiceUntil, millis())) {
+      // an unanswered farewell is "stay together", exactly as a miss is
+      if (choiceKind == 2) pet.declineFarewell();
+      choiceKind = 0;
+    } else drawChoiceDialog();
   }
 
   // "<name> joined the party!" after a farewell or release
@@ -6356,14 +6374,28 @@ void uiConfirmRects(int *b1Top, int *b1Bot, int *b2Top, int *b2Bot) {
   *b2Bot = CONFIRM_B2_Y + CONFIRM_BTN_H;
 }
 
+void uiConfirmRect3(int *b3Top, int *b3Bot) {
+  *b3Top = CONFIRM_B3_Y;
+  *b3Bot = CONFIRM_B3_Y + CONFIRM_BTN_H;
+}
+
 // Draws the panel and its two buttons. sub1/sub2 are optional lines between the
 // question and the buttons -- what the choice COSTS, which for anything
 // irreversible has to be on screen before the tap, not after it.
 void drawConfirmPanel(const char *q, const char *sub1, const char *sub2,
                       uint16_t subCol, const char *o1, uint16_t c1, uint16_t t1,
                       const char *o2, uint16_t c2, uint16_t t2) {
-  gfx->fillRoundRect(CONFIRM_X, CONFIRM_Y, CONFIRM_W, CONFIRM_H, 16, UI_WHITE);
-  gfx->drawRoundRect(CONFIRM_X, CONFIRM_Y, CONFIRM_W, CONFIRM_H, 16, UI_INK);
+  drawConfirmPanel3(q, sub1, sub2, subCol, o1, c1, t1, o2, c2, t2, nullptr, 0, 0);
+}
+
+// The same panel with an optional third button (o3 == nullptr: two buttons).
+void drawConfirmPanel3(const char *q, const char *sub1, const char *sub2,
+                       uint16_t subCol, const char *o1, uint16_t c1, uint16_t t1,
+                       const char *o2, uint16_t c2, uint16_t t2,
+                       const char *o3, uint16_t c3, uint16_t t3) {
+  int h = o3 ? CONFIRM_H3 : CONFIRM_H;
+  gfx->fillRoundRect(CONFIRM_X, CONFIRM_Y, CONFIRM_W, h, 16, UI_WHITE);
+  gfx->drawRoundRect(CONFIRM_X, CONFIRM_Y, CONFIRM_W, h, 16, UI_INK);
   gfx->setTextColor(UI_INK);
   gfx->setTextSize(2);
   gfx->setCursor(CX - (int)strlen(q) * 6, 176);
@@ -6390,12 +6422,20 @@ void drawConfirmPanel(const char *q, const char *sub1, const char *sub2,
   gfx->setTextColor(t2);
   gfx->setCursor(CX - (int)strlen(o2) * 6, CONFIRM_B2_Y + 18);
   gfx->print(o2);
+  if (o3) {
+    gfx->fillRoundRect(CONFIRM_BTN_X, CONFIRM_B3_Y, CONFIRM_BTN_W, CONFIRM_BTN_H, 12, c3);
+    gfx->setTextColor(t3);
+    gfx->setCursor(CX - (int)strlen(o3) * 6, CONFIRM_B3_Y + 18);
+    gfx->print(o3);
+  }
 }
 
 void drawChoiceDialog() {
-  const char *q, *o1, *o2;
+  const char *q, *o1, *o2, *o3 = nullptr;
   const char *sub1 = nullptr, *sub2 = nullptr;
-  uint16_t c1, c2, t1, t2;
+  uint16_t c1, c2, t1, t2, c3 = 0, t3 = 0;
+  uint16_t subCol = UI_BAR_BAD;   // a price, unless the branch says otherwise
+  char later[48];
   if (choiceKind == 1) {  // evolucion
     q = T(S_EVO_Q); o1 = T(S_EVO_TAP); o2 = T(S_EVO_KEEP);
     c1 = UI_BAR_BAD; t1 = UI_WHITE; c2 = UI_TRACK; t2 = UI_INK;
@@ -6411,8 +6451,13 @@ void drawChoiceDialog() {
   } else {                // despedida
     q = T(S_FAR_Q); o1 = T(S_FAR_GO); o2 = T(S_FAR_STAY);
     c1 = UI_BAR_WARN; t1 = UI_INK; c2 = UI_BAR_OK; t2 = UI_WHITE;
+    o3 = T(S_FAR_FOREVER); c3 = UI_TRACK; t3 = UI_INK;
+    // where the goodbye still is once "keep forever" has put this offer away
+    snprintf(later, sizeof(later), T(S_FAR_LATER_FMT), T(S_RETIRE));
+    sub1 = later;
+    subCol = UI_INK;              // information, not a cost
   }
-  drawConfirmPanel(q, sub1, sub2, UI_BAR_BAD, o1, c1, t1, o2, c2, t2);
+  drawConfirmPanel3(q, sub1, sub2, subCol, o1, c1, t1, o2, c2, t2, o3, c3, t3);
 }
 
 // boton-CTA rojo y grande para evolucionar (pulsa para llamar la atencion)

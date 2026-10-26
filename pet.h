@@ -368,9 +368,18 @@ public:
   bool canRunawayNow() const;   // abandono total 1h: lista para escaparse (boton triste)
   // el usuario decide en un dialogo; "mantener/quedaros" pospone y re-ofrece luego
   bool wantEvolveButton() const { return canEvolveNow() && level() > evoDeclinedLv; }
-  bool wantFarewellButton() const { return canFarewellNow() && ageMinutes >= farDeclinedAge; }
-  void declineEvolve() { evoDeclinedLv = level(); }              // re-ofrece al subir de nivel
-  void declineFarewell() { farDeclinedAge = ageMinutes + 1440; } // re-ofrece dentro de 1 dia
+  bool wantFarewellButton() const {
+    return canFarewellNow() && !farKeep && ageMinutes >= farDeclinedAge;
+  }
+  // Each answer is SAVED at once. They used to live in RAM only, so every
+  // reboot -- or any crash -- asked again straight away, and a "stay together"
+  // lasted until the next restart rather than a day.
+  void declineEvolve() { evoDeclinedLv = level(); save(); }              // re-offered next level
+  void declineFarewell() { farDeclinedAge = ageMinutes + 1440; save(); } // re-offered in a day
+  // "Keep forever": this creature is never offered the farewell again. RETIRE
+  // in the menu still says goodbye, and is still free once it was earned.
+  void keepForever() { farKeep = true; save(); }
+  bool keptForever() const { return farKeep; }
   // primera partida: el jugador elige inicial (Bulbasaur/Charmander/Squirtle)
   bool awaitingStarter() const { return starterPick; }
   void chooseStarter(int16_t dex) { eggTarget = dex; starterPick = false; save(); }
@@ -502,8 +511,12 @@ private:
   uint8_t mistakeCooldown = 0;
   uint8_t ticksSinceSave = 0;
   bool pendingSave = false;     // guardado periodico pendiente de volcar
-  uint8_t evoDeclinedLv = 0;    // "mantener forma": no ofrecer evolucion hasta subir de nivel
-  uint32_t farDeclinedAge = 0;  // "quedaros juntos": no ofrecer despedida hasta esta edad
+  // The three answers to the evolve/farewell offers. Per CREATURE: newEgg()
+  // clears them, or one creature's "keep form" at level 30 would hide the next
+  // one's evolution until it passed level 30.
+  uint8_t evoDeclinedLv = 0;    // "keep form": no evolve offer until a level above this
+  uint32_t farDeclinedAge = 0;  // "stay together": no farewell offer until this age
+  bool farKeep = false;         // "keep forever": no farewell offer at all
   bool starterPick = false;     // primera partida: esperando que el jugador elija inicial
   uint8_t evoPen = 0;           // levels added to this creature's evolution gate
   bool retirePending = false;   // an early retire is under way; newEgg() spends it

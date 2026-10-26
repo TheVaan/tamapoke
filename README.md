@@ -130,7 +130,8 @@ A quick reference to how the game really works (values straight from the code).
   but neglect *delays evolution*.
 - **Level caps at 100**, reached at 4 days 3 hours. Farewell is only *offered* at
   3 days (level 73) — **not a deadline**: your Pokémon is still growing, and
-  declining it to reach 100 is a real choice. Declining re-offers a day later.
+  declining it to reach 100 is a real choice. Declining re-offers a day later;
+  *Keep forever* stops asking for good (RETIRE in the menu still says goodbye).
 - It keeps **aging while powered off** (the RTC runs), catching up to **2 weeks** max.
 
 ### The four stats (0–100)
@@ -238,7 +239,10 @@ brings ELECTIVIRE, MAGMORTAR and RHYPERIOR waiting on exactly the same thing.
 ### The three endings (you choose & witness each — none auto-fire)
 - 💛 **Farewell** — when it's a **final form** that has lived **3 days**. A button
   appears; triggering it **blesses your next egg**. You can **postpone** ("stay
-  together", re-offered in a day). The good ending.
+  together", re-offered in a day — closing the question without answering counts
+  as this too) or **keep it forever** (never asked again for this creature; RETIRE
+  in the menu still ends it as a farewell). Every answer is saved, so a restart
+  does not ask again. The good ending.
 - 💔 **Run-away** — if you let **all four stats sit at 0 for a full hour**. A single
   act of care cancels it. It **curses the next egg** (forces Common). The sad ending.
 - 👋 **Release** — long-press the creature to let it go on your terms (neutral).
@@ -513,8 +517,10 @@ witness it), each opening a two-option dialog:
 - **Evolution** (red button): *Evolve* (epic animation: halo, rays, sparkles and
   a **flicker between the old and new form**) or *Keep form* (re-offered next level).
 - **Farewell** (gold button, final form + 3 days): *Say goodbye* (warm farewell,
-  rising hearts → new egg) or *Stay together* (keep your companion; re-offered in
-  a day). Tension: a maxed-out friend vs. completing the Pokédex.
+  rising hearts → new egg), *Stay together* (keep your companion; re-offered in
+  a day — also what a miss or the timeout means) or *Keep forever* (never offered
+  again for this creature; MENU → RETIRE still says goodbye, free once earned).
+  Tension: a maxed-out friend vs. completing the Pokédex.
 - **Runaway** (dark button, total neglect for 1 h): a somber "feels abandoned"
   ending in the rain — caring for the creature cancels it.
 
