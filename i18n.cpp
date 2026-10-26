@@ -184,7 +184,7 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
    "SD-KARTE NICHT LESBAR", "Sie muss formatiert werden", "ALLE DATEN GEHEN VERLOREN", "FORMATIEREN", "ABBRECHEN", "Formatiere...", "Karte nicht entfernen", "SD-Karte bereit", "jetzt die Sprite-Packs kopieren", "Formatieren fehlgeschlagen", "weiter ohne Sprites",
    "%s nimmt den Platz ein",
    "MÜDE", "SCHLÄFT",
-   "Fuer immer", "spaeter: %s im Menue", },
+   "Für immer", "später: %s im Menü", },
   // ---------------- IT ----------------
   {
     "Si evolve!", "Gnam gnam!", "Gli piace!", "Ha fame!", "Vuole un bagno!",
