@@ -33,6 +33,7 @@
 #include "rtcbat.h"
 #include "i18n.h"
 #include "audio.h"
+#include <nvs.h>      // HEALTH: NVS entry use, for the soak test
 
 // Version del firmware. Subir este numero en cada release (y manifest.json para
 // el instalador web). Se muestra en la pantalla de ajustes y por serie al arrancar.
@@ -1475,9 +1476,21 @@ void handleSerial() {
     Serial.printf("frames: asked=%lu pushed=%lu unchanged=%lu\n",
                   (unsigned long)gFlushCalls, (unsigned long)gFramePushes,
                   (unsigned long)gFrameSkips);
-    // Pet::save() writes ~52 NVS keys and stalls both cores while it does
-    Serial.printf("saves=%lu last=%lums pending=%d\n", (unsigned long)pet.saveCount,
-                  (unsigned long)pet.lastSaveMs, pet.savePending() ? 1 : 0);
+    // Pet::save() writes ~52 NVS keys and stalls both cores while it does.
+    //
+    // nvs= is used/total NVS entries, for the soak test. The first board soak
+    // (1.8 h) showed the heap stepping down by exactly 144 bytes now and then:
+    // one 128-byte NVS hash-list block plus the allocator's header and the
+    // light-poisoning canaries. NVS appends a changed value as a new entry and
+    // indexes each page in RAM; the blocks go when a full page is erased, so
+    // the drift is bounded by the partition, not a leak. Printing the entry
+    // count lets the next soak tie each heap step to a write instead of
+    // guessing.
+    nvs_stats_t nvs;
+    if (nvs_get_stats(NULL, &nvs) != ESP_OK) nvs = nvs_stats_t{};
+    Serial.printf("saves=%lu last=%lums pending=%d nvs=%u/%u\n", (unsigned long)pet.saveCount,
+                  (unsigned long)pet.lastSaveMs, pet.savePending() ? 1 : 0,
+                  (unsigned)nvs.used_entries, (unsigned)nvs.total_entries);
     bootReportAgain();
     Serial.println("DONE");
   } else if (line == "STATS") {

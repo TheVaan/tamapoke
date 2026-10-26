@@ -81,6 +81,9 @@ int main(){
   Serial.raw = std::string("HEALTH\n") + "\x01\x02PAYLOAD";
   out = once(nullptr);
   ck(out.find("psram=") != std::string::npos, "HEALTH runs");
+  // the soak test reads these: saves for the write rate, nvs for the heap steps
+  ck(out.find("saves=") != std::string::npos && out.find(" nvs=") != std::string::npos,
+     "and reports the save count and NVS entry use");
   ck(Serial.raw == std::string("\x01\x02PAYLOAD"),
      "and every byte after its '\\n' is still unread, for readBytes() to take");
   Serial.raw.clear();
