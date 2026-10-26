@@ -157,3 +157,11 @@ const char *medalDesc(int i);  // descripcion larga de medalla
 
 void loadLang();             // lee el idioma de NVS (llamar en setup)
 void setLang(Lang l);        // cambia y persiste el idioma
+// Has a language ever been picked on this board? False on a fresh NVS and after
+// WIPE, which is when the first boot asks for one before anything else.
+bool langChosen();
+// A language's name written in that language ("DEUTSCH", not "German"), for the
+// first-boot picker: whoever is choosing may not read the current one.
+const char *langNativeName(Lang l);
+// One string in a given language rather than the active one.
+const char *TL(Lang l, StrId id);

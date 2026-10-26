@@ -59,6 +59,8 @@ static void crumbIs(const char *want){
 int main(){
   setup();
   for (int i=0;i<4;i++) render();
+  // a clean NVS opens on the first-boot language question
+  check("lang"); crumbIs("lang");
   if (pet.awaitingStarter()) pet.chooseStarter(4);
   if (pet.isEgg()) pet.dbgHatchAs(6,false);
   pet.ageMinutes = 60UL*60;
