@@ -37,10 +37,17 @@ Wrong partition scheme (no FAT) or PSRAM off = it builds and then fails on hardw
 
 ## Hard rules
 
-**No accents, ñ, or non-ASCII in any firmware string.** The bitmap font has no glyphs
-for them. This applies to *all six* languages — French, German, Portuguese and Spanish
-strings in `i18n.cpp` are deliberately written unaccented ("Esta", "bano", "Pokedex").
-Adding a proper "é" silently renders as garbage on the panel.
+**No accents, ñ, or non-ASCII in any firmware string -- except German umlauts.**
+The panel font is the classic 5x7 GLCD set, i.e. code page 437. French, Portuguese,
+Spanish and Italian strings in `i18n.cpp` stay deliberately unaccented ("Esta",
+"bano", "Pokedex"); CP437 lacks most of their capitals anyway. **German** is
+written with real ä ö ü Ä Ö Ü ß in UTF-8, and `glcdEncode()` maps them onto the
+font's single-byte glyphs ONCE, when the language becomes active -- so `strlen()`
+counts glyphs again and every centring still works. Only characters in
+`GLCD_MAP` may appear; anything else draws as '?'. `i18n_test` fails on an
+unmapped character, on non-ASCII outside the German row, and if `T()` hands the
+panel raw UTF-8 instead of the encoded text. A string printed straight from a
+`.ino` literal is NOT encoded: keep those ASCII.
 
 **Adding a UI string is a two-file, order-sensitive edit.** Append the `StrId` to the
 enum in `i18n.h`, then add the translation at the *same index* in all 6 rows of

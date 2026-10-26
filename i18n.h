@@ -163,5 +163,11 @@ bool langChosen();
 // A language's name written in that language ("DEUTSCH", not "German"), for the
 // first-boot picker: whoever is choosing may not read the current one.
 const char *langNativeName(Lang l);
-// One string in a given language rather than the active one.
+// One string in a given language rather than the active one, encoded for the
+// panel like T(). The pointer is valid until the next-but-one TL() call.
 const char *TL(Lang l, StrId id);
+// The panel font is code page 437. Converts UTF-8 to it, one byte per glyph;
+// a character the font cannot draw becomes '?'. Returns how many did.
+int glcdEncode(const char *in, char *out, size_t cap);
+// The string exactly as written in i18n.cpp (UTF-8), for i18n_test.
+const char *i18nSource(Lang l, StrId id);

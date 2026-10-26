@@ -662,7 +662,8 @@ a farewell and punished by a runaway. Legendaries only with 25+ registered.
 
 **Languages:** the UI ships in 6 languages — English (default), Spanish, French,
 German, Italian, Portuguese — chosen on the very first screen of a new board,
-and switchable from the settings screen (swipe down).
+and switchable from the settings screen (swipe down). German shows real umlauts
+(ä ö ü ß, from the font's own glyphs); the other languages are written unaccented.
 
 ## Backgrounds: biome + real time
 
