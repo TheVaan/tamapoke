@@ -90,6 +90,9 @@ void Pet::newEgg() {
   // An offer belongs to the creature that unlocked it. Left set, an egg would
   // open the learn screen -- and now that the queue is saved, keep doing so.
   learnQCount = 0;
+  evoDeclinedLv = 0;
+  farDeclinedAge = 0;
+  farKeep = false;
   sleeping = false;
   frozen = false;
   save();
@@ -1340,6 +1343,9 @@ void Pet::save() {
   prefs.putUChar("evop", evoPen);
   prefs.putUChar("slpa", sleepAuto);
   prefs.putBool("rtpn", retirePending);
+  prefs.putUChar("evoD", evoDeclinedLv);
+  prefs.putUInt("farD", farDeclinedAge);
+  prefs.putBool("farK", farKeep);
   prefs.putBytes("dexsh", dexShinyReg, sizeof(dexShinyReg));
   prefs.putUInt("age", ageMinutes);
   prefs.putShort("dexn", speciesId);
@@ -1396,6 +1402,10 @@ void Pet::load() {
   eggShiny = prefs.getBool("eshy", false);
   starterPick = prefs.getBool("stpk", false);
   evoPen = prefs.getUChar("evop", 0);
+  // absent on a save from before they were kept: zero asks, as it always did
+  evoDeclinedLv = prefs.getUChar("evoD", 0);
+  farDeclinedAge = prefs.getUInt("farD", 0);
+  farKeep = prefs.getBool("farK", false);
   sleepAuto = prefs.getUChar("slpa", SLEEP_NONE);
   // Never carried across a boot: the ceremony that spends it is not saved, so a
   // reset inside those 10 s used to bring the creature back with the flag still

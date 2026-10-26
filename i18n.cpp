@@ -53,7 +53,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
  "ELEGIDOS %u/%u", "LUCHAR", "BLOQUEADO", "POKEMON", "%s derrotado!", "MEDALLA NUEVA!", "VOL %u", "CAJA %u/%u", "cambiar con %s: elige hueco", "CAJA", "TRAER", "solo con un huevo", "COMBATE LAN", "CREAR", "UNIRSE", "buscando...", "listo!", "version distinta", "crear o unirse", "rival: %u mons", "el rival se fue", "esperando al rival...", "OTRA VEZ", "HUIR", "de que region viene el huevo", "%s +%u", "ya no puede entrenar mas", "ELIGE TU REGION", "RETIRAR", "Retirarla ya?", "la siguiente evoluciona un dia mas tarde", "evoluciona un dia mas tarde",   "FALTA PACK", "SOLTAR", "se va para siempre", "AL EQUIPO", "no se unira a tu equipo",
    "TARJETA SD ILEGIBLE", "Hay que formatearla para usarla", "SE BORRARAN TODOS SUS DATOS", "FORMATEAR", "CANCELAR", "Formateando...", "No saques la tarjeta", "Tarjeta SD lista", "copia ahora los packs de sprites", "Error al formatear", "se sigue sin sprites",
    "%s ocupa su lugar",
-   "AGOTADO", "DORMIDO", },
+   "AGOTADO", "DORMIDO",
+   "Para siempre", "despues: %s en el menu", },
   // ---------------- EN ----------------
   {
     "Evolving!", "Yum yum!", "It likes it!", "It's hungry!", "Needs a bath!",
@@ -96,7 +97,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
    "NEEDS PACK", "RELEASE", "gone for good", "TO PARTY", "it will not join your party",
    "SD CARD UNREADABLE", "It must be formatted to be used", "ALL DATA ON IT WILL BE LOST", "FORMAT", "CANCEL", "Formatting...", "Do not remove the card", "SD card ready", "now copy the sprite packs to it", "Format failed", "carrying on without sprites",
    "%s takes its place",
-   "TIRED", "ASLEEP", },
+   "TIRED", "ASLEEP",
+   "Keep forever", "later: %s in the menu", },
   // ---------------- FR ----------------
   {
     "Il evolue!", "Miam miam!", "Il aime ca!", "Il a faim!", "Besoin d'un bain!",
@@ -138,7 +140,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
    "PACK REQUIS", "RELACHER", "parti pour de bon", "A L EQUIPE", "ne rejoindra pas l equipe",
    "CARTE SD ILLISIBLE", "Elle doit etre formatee", "TOUTES SES DONNEES SERONT PERDUES", "FORMATER", "ANNULER", "Formatage...", "Ne retirez pas la carte", "Carte SD prete", "copiez-y les packs de sprites", "Echec du formatage", "on continue sans sprites",
    "%s prend sa place",
-   "EPUISE", "ENDORMI", },
+   "EPUISE", "ENDORMI",
+   "Pour toujours", "plus tard: %s dans le menu", },
   // ---------------- DE ----------------
   {
     "Entwickelt sich!", "Mampf mampf!", "Gefällt ihm!", "Hat Hunger!", "Braucht ein Bad!",
@@ -180,7 +183,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
    "PACK FEHLT", "FREILASSEN", "für immer weg", "INS TEAM", "kommt nicht ins team",
    "SD-KARTE NICHT LESBAR", "Sie muss formatiert werden", "ALLE DATEN GEHEN VERLOREN", "FORMATIEREN", "ABBRECHEN", "Formatiere...", "Karte nicht entfernen", "SD-Karte bereit", "jetzt die Sprite-Packs kopieren", "Formatieren fehlgeschlagen", "weiter ohne Sprites",
    "%s nimmt den Platz ein",
-   "MÜDE", "SCHLÄFT", },
+   "MÜDE", "SCHLÄFT",
+   "Fuer immer", "spaeter: %s im Menue", },
   // ---------------- IT ----------------
   {
     "Si evolve!", "Gnam gnam!", "Gli piace!", "Ha fame!", "Vuole un bagno!",
@@ -222,7 +226,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
    "MANCA PACK", "LIBERA", "via per sempre", "AL GRUPPO", "non entrera nel gruppo",
    "SCHEDA SD ILLEGGIBILE", "Va formattata per usarla", "TUTTI I DATI ANDRANNO PERSI", "FORMATTA", "ANNULLA", "Formattazione...", "Non togliere la scheda", "Scheda SD pronta", "ora copia i pack di sprite", "Formattazione fallita", "si continua senza sprite",
    "%s prende il suo posto",
-   "STANCO", "DORME", },
+   "STANCO", "DORME",
+   "Per sempre", "dopo: %s nel menu", },
   // ---------------- PT ----------------
   {
     "Evoluindo!", "Nham nham!", "Ele gosta!", "Esta com fome!", "Precisa de banho!",
@@ -264,7 +269,8 @@ static const char *const STRINGS[LANG_COUNT][STR_COUNT] = {
    "FALTA PACK", "SOLTAR", "vai para sempre", "A EQUIPA", "nao entrara na equipa",
    "CARTAO SD ILEGIVEL", "Tem de ser formatado para o usar", "TODOS OS DADOS SERAO PERDIDOS", "FORMATAR", "CANCELAR", "A formatar...", "Nao retires o cartao", "Cartao SD pronto", "copia agora os packs de sprites", "Falha ao formatar", "continua sem sprites",
    "%s fica no lugar",
-   "CANSADO", "DORMINDO", },
+   "CANSADO", "DORMINDO",
+   "Para sempre", "depois: %s no menu", },
 };
 
 // Nombres de medalla en sus tres longitudes [idioma][medalla].
