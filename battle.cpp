@@ -1,4 +1,5 @@
 #include "battle.h"
+#include "i18n.h"   // speciesName(): a combatant carries its display name
 #include "dex.h"
 #include "types.h"
 
@@ -20,7 +21,7 @@ void combatantFromPet(Combatant &c, const Pet &p) {
        p.spaStat(), p.spdStat(), p.speStat());
   for (int i = 0; i < MOVE_SLOTS; i++) c.moves[i] = p.moves[i];
   c.shiny = p.shiny;
-  const char *nm = p.nick[0] ? p.nick : DEX_TBL[p.speciesId].name;
+  const char *nm = p.nick[0] ? p.nick : speciesName(p.speciesId);
   snprintf(c.name, sizeof(c.name), "%s", nm);
 }
 
@@ -32,7 +33,7 @@ void combatantFromParty(Combatant &c, const PartyMon &m) {
        party.spaOf(m), party.spdOf(m), party.speOf(m));
   for (int i = 0; i < MOVE_SLOTS; i++) c.moves[i] = m.moves[i];
   c.shiny = m.shiny != 0;
-  const char *nm = m.nick[0] ? m.nick : DEX_TBL[m.dex].name;
+  const char *nm = m.nick[0] ? m.nick : speciesName(m.dex);
   snprintf(c.name, sizeof(c.name), "%s", nm);
 }
 

@@ -670,6 +670,11 @@ a farewell and punished by a runaway. Legendaries only with 25+ registered.
 German, Italian, Portuguese — chosen on the very first screen of a new board,
 and switchable from the settings screen (swipe down). German shows real umlauts
 (ä ö ü ß, from the font's own glyphs); the other languages are written unaccented.
+Pokémon names follow the language where the games use their own: German
+(GLUMANDA, GLURAK) and French (SALAMECHE, DRACAUFEU). Spanish, Italian and
+Portuguese games use the English names, and so does TamaPoke. The tables are
+generated from PokeAPI by `tools/gen_names.py`; the serial console always uses
+the English names.
 
 ## Backgrounds: biome + real time
 
